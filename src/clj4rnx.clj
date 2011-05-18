@@ -88,7 +88,7 @@
   (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
   (ev "clj4rnx.track:clear()")
   (doseq [[t p v d] notes]
-    (let [l (inc (* t *lpb*))]
+    (let [l (inc (int (* t *lpb*)))]
       (ev "clj4rnx.note_column = clj4rnx.track:line(" l "):note_column(1)")
       (ev "clj4rnx.note_column.note_value = " p)
       (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
@@ -102,33 +102,70 @@
            (let [times (if (first args) (range (first args)) (iterate inc 0))]
              (mapcat (fn [t] (map #(alter-note %1 1 + %2) n-coll (repeat (* dur t)))) times))))
 
-(defn take-beats [n coll]  (take-while #(< (% 0) n) coll))
+(defn take-beats [n n-coll]  (take-while #(< (% 0) n) n-coll))
 
-(defn xform-time [n t-coll dur]
-  (map #(assoc %1 0 %2) (repeat n) (mapcat #(map + t-coll (repeat (* dur %))) (iterate inc 0))))
+(defn assoc-time- [t-coll dur n-coll]
+  (map #(assoc %1 0 %2) n-coll (mapcat #(map + t-coll (repeat (* dur %))) (iterate inc 0))))
+; (->> *base-note* repeat (assoc-time [0.0] 0.5) (take 5))
+; (take 5 (assoc-time [0.0] 1.0 (repeat *base-note*)))
+
+(def assoc-time (partial map #(assoc %2 0 %1))) ; [t-coll n-coll]
+(def assoc-pitch (partial map #(assoc %2 1 %1))) ; [p-coll n-coll]
+(def assoc-vel (partial map #(assoc %2 2 %1))) ; [vel-coll n-coll]
+(def assoc-dur (partial map #(assoc %2 3 %1))) ; [dur-coll n-coll]
+; (->> *base-note* repeat (assoc-time (iterate (partial + 4) 0)) (take 5))
 
 (defn within-beats [l u & args]
   (let [len (if (odd? (count args)) (last args))
         coll (concat [[l u]] (partition 2 args))]
     (fn [n]
       (let [v (if len (mod (n 0) len) (n 0))]
+        (println "n: " n)
         (some #(and (<= (first %) v) (<= v (last %))) coll)))))
 
-(defn- set-patr-0 []
-  (set-patr 0 4)
-  (set-notes 1 (take-beats 8.0 (xform-time [0 48 0.8 0.5] [0.0] 1.0))))
+(def *base-note* [0 48 3/4 1/2])
+(def *base-quarter-notes* (->> [0 48 3/4 1] repeat (assoc-time (iterate inc 0))))
+(def *base-sixteenth-notes* (->> [0 48 3/4 1/4] repeat (assoc-time (iterate (partial + 1/4) 0))))
+(def *base-notes* (->> *base-note* repeat (assoc-time (iterate inc 0))))
+(def *base-notes* (->> *base-note* repeat))
 
-(defn- set-patr-1 []
-  (set-patr 1 4)
-  (set-notes 1 (take-beats 8.0 (xform-time [0 48 0.8 0.5] [0.0] 1.0)))
-  (set-notes 2 (take-beats 8.0 (xform-time [0 48 0.8 0.5] [1.0] 2.0))))
+(comment
+  (take 8 (filter (within-beats 1 3) [[0 0] [1 1] [2 2] [3 3] [4 4]]))
+  (take 8 (filter (within-beats 1/8 2) [[0 0] [1/8 1/8] [1/4 1/4] [2 2] [3 3]]))
+  )
 
-(defn- set-patr-2 []
-  (set-patr 2 4)
-  (set-notes 1 (take-beats 8.0 (xform-time [0 48 0.8 0.5] [0.0] 1.0)))
-  (set-notes 2 (take-beats 8.0 (xform-time [0 48 0.8 0.5] [1.0] 2.0)))
-  (set-notes 3 (take-beats 8.0 (xform-time [0 48 0.8 0.25] [0.5] 1.0))))
+(defn- set-patr-0 [beat-cnt]
+  (set-patr 0 beat-cnt)
+  (set-notes 1 (->> *base-quarter-notes* (take-beats beat-cnt)))
+  (set-notes 3 (->> *base-sixteenth-notes* (take-beats beat-cnt))))
 
+; (set-patr-0 8)
+
+(defn- set-patr-1 [beat-cnt]
+  (set-patr 1 beat-cnt)
+  (set-notes 1 (->> *base-notes* (assoc-time (iterate inc 0)) (take-beats beat-cnt)))
+  (set-notes 2 (->> *base-note* repeat (assoc-time (iterate (partial + 2) 1)) (take-beats beat-cnt))))
+
+(defn- set-patr-2 [beat-cnt]
+  (set-patr 2 beat-cnt)
+  (set-notes 1 (->> *base-note* repeat (assoc-time (iterate inc 0)) (take-beats beat-cnt) butlast))
+  (set-notes 2 (->> *base-note* repeat (assoc-time (iterate (partial + 2) 1)) (take-beats beat-cnt)))
+  (set-notes 3 (->> *base-sixteenth-notes* (take-beats beat-cnt) (remove (within-beats 0 0 1/2 3/4 1)))))
+
+; (set-patr-2 8) 
+
+(comment
+ (->> *base-note* repeat (assoc-time (iterate (partial + 1/8) 0)) (take-beats 1))
+ (->> *base-note* repeat (assoc-time (iterate (partial + 1/8) 0)) (take 6))
+          ) 
+
+
+(comment
+  (set-patr-0 4)
+  (set-patr-0 8)
+  (set-patr-1 4)
+  (set-patr-2 8)
+  )
 
 (defn demo []
   (reset-song {:patr-cnt 3 :track-cnt 7
@@ -139,9 +176,9 @@
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}
                         {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 82}
                         {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}]})
-  (set-patr-0)
-  (set-patr-1)
-  (set-patr-2)
+  (set-patr-0 4)
+;  (set-patr-1)
+;  (set-patr-2)
   )
 ; (demo)
 
@@ -150,7 +187,7 @@
   
   (set-patr 0 4)
   (set-patr 0 8)
-  (set-notes 1 [[0 48 0.8 0.5]])
+  (set-notes 1 [[0 49 0.8 0.5]])
   
   (set-notes 1 (take-beats 8.0 (xform-time [0 48 0.8 0.5] [0.0] 1.0)))
   (set-notes 2 (take-beats 8.0 (xform-time [0 48 0.8 0.5] [1.0] 2.0)))
