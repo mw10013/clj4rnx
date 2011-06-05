@@ -31,18 +31,7 @@
     (do
       (ev "clj4rnx.plugin_properties = clj4rnx.instrument.plugin_properties")
       (ev "clj4rnx.plugin_properties:load_plugin('" (:plugin-name ctx) "')")
-      (ev "clj4rnx.plugin_properties.plugin_device.active_preset = " (:preset ctx))))
-)
-
-(comment
-  (reset-instr {:instr-idx 0 :plugin-name "Audio/Generators/VST/Sylenth1" :preset 82})
-  (reset-instr {:instr-idx 0 :plugin-name "Audio/Generators/VST/Sylenth1" :preset 82
-                :sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Clubby/VEC1 BD Clubby 01.wav"})
-  (reset-instr {:instr-idx 0 
-                :sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Clubby/VEC1 BD Clubby 05.wav"})
-  (reset-instr {:instr-idx 0 :plugin-name "Audio/Generators/VST/Sylenth1" :preset 83})
-  (reset-instr {:instr-idx 0 :plugin-name "Audio/Generators/VST/Vanguard"})
-  )
+      (ev "clj4rnx.plugin_properties.plugin_device.active_preset = " (:preset ctx)))))
 
 (defn reset-song [ctx]
   (ev "clj4rnx.song = renoise.song()")
@@ -63,22 +52,6 @@
   (doseq [_ (range (dec (count (:instrs ctx))))]
     (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
   (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs ctx))))
-
-(comment
-  (reset-song {:patr-cnt 3 :track-cnt 7
-               :instrs [{:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
-                        {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}
-                        {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}
-                        {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Open HH/VEC1 Cymbals  OH 001.wav"}
-                        {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}
-                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 82}
-                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}]})
-  
-  (reset-song {:patr-cnt 3 :track-cnt 2 :instr-cnt 2
-               :instrs [{:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Clubby/VEC1 BD Clubby 05.wav"}
-                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 82}
-                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}]})
-  )
 
 (defn set-notes [trk-idx notes]
   (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
@@ -160,8 +133,12 @@
 (add-bar-f :whl #(repeat [*base-note*]))
 (add-bar-f :qtr #(repeat (map (fn [b] (assoc *base-note* 0 b)) (range 4))))
 (add-bar-f :eth #(repeat (map (fn [b] (assoc *base-note* 0 (* b 1/2))) (range 8))))
-(add-bar-f :off-eth #(repeat (map (fn [b] (assoc *base-note* 0 (+ b 1/2))) (range 8))))
+(add-bar-f :off-eth #(repeat (map (fn [b] (assoc *base-note* 0 (+ b 1/2))) (range 4))))
 (add-bar-f :six #(repeat (map (fn [b] (assoc *base-note* 0 (* b 1/4))) (range 16))))
+(add-bar-f :bass-1 #(cycle [[[0 48 3/4 1] [3/2 48 3/4 1/2]]]))
+
+; (set-patr :grv-1 0 2)
+; (take 2 (get-bars :bass-1))
 
 (def patr-fs* (ref {}))
 (defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
@@ -171,28 +148,24 @@
                        {:bd (get-bars :whl)
                         :sd (get-bars :qtr)
                         :hh-c (get-bars :off-eth)
-;                        :bass (get-notes :bass-1a)
+                        :bass (get-bars :bass-1)
                         }))
 
 (add-patr-f :grv-0 (fn []
-;                     (assoc {} :bd (:bd (get-patr :grv-1)))
+                     (assoc {} :bd (:bd (get-patr :grv-1)))
                      ))
 
 ; (set-patrs (subvec patr-specs* 1 2))
-; (take 2 (get-bars :qtr))
 (defn set-patr [name idx bar-cnt]
   (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
   (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
   (let [patr (get-patr name)]
-;    (def patr* patr)
     (set-bars 1 (take bar-cnt (:bd patr)))
     (set-bars 2 (take bar-cnt (:sd patr)))
     (set-bars 3 (take bar-cnt (:hh-c patr)))
     (set-bars 5 (take bar-cnt (:bass patr)))))
 
-; (set-patr :grv-1 0 2)
-
-(def patr-specs* [{:patr :grv-0 :bar-cnt 1} {:patr :grv-1 :bar-cnt 1}])
+(def patr-specs* [{:patr :grv-0 :bar-cnt 2} {:patr :grv-1 :bar-cnt 2}])
 
 (defn- set-patrs [specs]
   (map-indexed #(set-patr (:patr %2) %1 (:bar-cnt %2)) specs))
@@ -211,4 +184,71 @@
   )
 ; (demo)
 
+(def k*
+     {
+      :1w "1w"
+      :1h"1h"
+      :1q "1q"
+      :1e "1e"
+      :5w "5w"
+      :5h"5h"
+      :5q "5q"
+      :5e "5e"
+      :-1w "-1w"
+      :-1h"-1h"
+      :-1q "-1q"
+      :-1e "-1e"
+      })
 
+[:1q :1q :1q :1q]
+['(ch :-1w :1w :5q) :6q]
+['(ch :-1w :1w :5e) :6q :2e]
+['(ch :-1w :1q :5e) '(ch :6q :0e) :2e]
+; sometimes vertical, sometimes horizontal
+; jfugue uses + to indicate vertical, - to indicate ties
+[:-1w+1q+5e ]
+
+(def n*
+     {
+      :c4w {:p 48 :v 3/4 :d 1}
+      :c4h {:p 48 :v 3/4 :d 1/2}
+      :c4q {:p 48 :v 3/4 :d 1/4}
+      :c4e {:p 48 :v 3/4 :d 1/8}
+      :c4s {:p 48 :v 3/4 :d 1/16}
+      :d4q {:p 50 :v 3/4 :d 1/4}
+      :e4q {:p 52 :v 3/4 :d 1/4}
+      })
+
+(defn- from-keyword [ctx kw]
+  (println "from-keyword:" ctx kw)
+  (let [n (assoc (n* kw) :t (:t ctx))]
+                               (assoc ctx :t (+ (:t ctx) (:d n)) :ns (conj (:ns ctx) n))))
+
+(defn- from-set [ctx coll]
+  (println "from-set:" ctx coll)
+  (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
+                          (let [new-ctx (assoc new-ctx :t (:t ctx))
+                                new-ctx (cond
+                                         (vector? val) (from-coll new-ctx val)
+                                         (keyword? val) (from-keyword new-ctx val)
+                                         :else (throw (Exception. (str "from-set: unexpected val: " val))))]
+                            (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
+                        (assoc ctx :max-t (:t ctx)) coll)]
+    (println "from-set: new-ctx:" new-ctx)
+    (assoc new-ctx :t (:max-t new-ctx))))
+
+(defn- from-coll
+  ([coll]
+     (from-coll {:t 0 :ns []} coll))
+  ([ctx coll]
+     (println "from-coll:" ctx coll)
+     (reduce (fn [ctx val]
+               (cond
+                (set? val) (from-set ctx val)
+                (keyword? val) (from-keyword ctx val)
+                :else (throw (Exception. (str "from-coll: unexpected val: " val)))))
+             ctx coll)))
+
+; (from-coll [:c4w :c4w :c4e :c4e])
+; (from-coll [#{:c4h [:d4q :e4q]}])
+; (from-coll [#{:c4h :d4q}])
