@@ -73,6 +73,67 @@
       (map #(assoc %1 0 (+ (* 4 idx) (%1 0))) bar))
     (iterate inc 0)  bars)))
 
+(def n*
+     {
+      :c4w {:p 48 :v 3/4 :d 1}
+      :c4h {:p 48 :v 3/4 :d 1/2}
+      :c4q {:p 48 :v 3/4 :d 1/4}
+      :c4e {:p 48 :v 3/4 :d 1/8}
+      :c4s {:p 48 :v 3/4 :d 1/16}
+      :d4q {:p 50 :v 3/4 :d 1/4}
+      :d4e {:p 50 :v 3/4 :d 1/8}
+      :e4q {:p 52 :v 3/4 :d 1/4}
+      })
+
+(defn- notes-from-keyword [ctx kw]
+  (println "notes-from-keyword:" ctx kw)
+  (let [n (assoc (n* kw) :t (:t ctx))]
+                               (assoc ctx :t (+ (:t ctx) (:d n)) :ns (conj (:ns ctx) n))))
+
+(defn- set-to-notes [ctx coll]
+  (println "set-to-notes:" ctx coll)
+  (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
+                          (let [new-ctx (assoc new-ctx :t (:t ctx))
+                                new-ctx (cond
+                                         (vector? val) (from-coll new-ctx val)
+                                         (keyword? val) (notes-from-keyword new-ctx val)
+                                         :else (throw (Exception. (str "from-set: unexpected val: " val))))]
+                            (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
+                        (assoc ctx :ns []  :max-t (:t ctx)) coll)]
+    (println "set-to-notes: new-ctx:" new-ctx)
+    (assoc new-ctx :t (:max-t new-ctx) :ns (concat (:ns ctx) (sort #(compare (:t %1) (:t %2)) (:ns new-ctx))))))
+
+(defn- coll-to-notes
+  ([coll]
+     (:ns (coll-to-notes {:t 0 :ns []} coll)))
+  ([ctx coll]
+     (println "coll-to-notes:" ctx coll)
+     (reduce (fn [ctx val]
+               (cond
+                (set? val) (set-to-notes ctx val)
+                (keyword? val) (notes-from-keyword ctx val)
+                :else (throw (Exception. (str "from-coll: unexpected val: " val)))))
+             ctx coll)))
+
+(defn- notes-to-bars [notes]
+  (reduce (fn [bars {t :t :as n}]
+            (let [idx (int t)
+                  bars (into bars (repeat (- (inc idx) (count bars)) []))]
+              (assoc bars idx (conj (bars idx) (assoc n :t (- (n :t) idx))))))
+          [] notes))
+
+(defn- coll-to-bars [coll] (->> coll coll-to-notes notes-to-bars))
+
+; (coll-to-bars [:c4w :c4w :c4e :c4e])
+
+; (coll-to-notes [:c4w :c4w :c4e :c4e])
+; (coll-to-notes [#{:c4h [:d4q :e4q :c4q]}])
+; (coll-to-notes [#{:c4h :d4q}])
+; (coll-to-notes [#{[:c4s :c4s :c4s] [:d4e :d4e]}])
+; (def c* (coll-to-notes [:c4w #{[:c4s :c4s :c4s] [:d4e :d4e]}]))
+; (notes-to-bars (coll-to-notes [:c4w :c4w :c4e :c4e]))
+; (notes-to-bars (coll-to-notes [:c4w #{[:c4s :c4s :c4s] [:d4e :d4e]}]))¯
+
 (comment (defn repeat-beats [n-coll dur & args]
            (let [times (if (first args) (range (first args)) (iterate inc 0))]
              (mapcat (fn [t] (map #(alter-note %1 1 + %2) n-coll (repeat (* dur t)))) times))))
@@ -208,47 +269,3 @@
 ; jfugue uses + to indicate vertical, - to indicate ties
 [:-1w+1q+5e ]
 
-(def n*
-     {
-      :c4w {:p 48 :v 3/4 :d 1}
-      :c4h {:p 48 :v 3/4 :d 1/2}
-      :c4q {:p 48 :v 3/4 :d 1/4}
-      :c4e {:p 48 :v 3/4 :d 1/8}
-      :c4s {:p 48 :v 3/4 :d 1/16}
-      :d4q {:p 50 :v 3/4 :d 1/4}
-      :e4q {:p 52 :v 3/4 :d 1/4}
-      })
-
-(defn- from-keyword [ctx kw]
-  (println "from-keyword:" ctx kw)
-  (let [n (assoc (n* kw) :t (:t ctx))]
-                               (assoc ctx :t (+ (:t ctx) (:d n)) :ns (conj (:ns ctx) n))))
-
-(defn- from-set [ctx coll]
-  (println "from-set:" ctx coll)
-  (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
-                          (let [new-ctx (assoc new-ctx :t (:t ctx))
-                                new-ctx (cond
-                                         (vector? val) (from-coll new-ctx val)
-                                         (keyword? val) (from-keyword new-ctx val)
-                                         :else (throw (Exception. (str "from-set: unexpected val: " val))))]
-                            (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
-                        (assoc ctx :max-t (:t ctx)) coll)]
-    (println "from-set: new-ctx:" new-ctx)
-    (assoc new-ctx :t (:max-t new-ctx))))
-
-(defn- from-coll
-  ([coll]
-     (from-coll {:t 0 :ns []} coll))
-  ([ctx coll]
-     (println "from-coll:" ctx coll)
-     (reduce (fn [ctx val]
-               (cond
-                (set? val) (from-set ctx val)
-                (keyword? val) (from-keyword ctx val)
-                :else (throw (Exception. (str "from-coll: unexpected val: " val)))))
-             ctx coll)))
-
-; (from-coll [:c4w :c4w :c4e :c4e])
-; (from-coll [#{:c4h [:d4q :e4q]}])
-; (from-coll [#{:c4h :d4q}])
