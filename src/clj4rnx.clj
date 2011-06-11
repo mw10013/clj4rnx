@@ -56,8 +56,8 @@
 (defn set-notes [trk-idx notes]
   (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
   (ev "clj4rnx.track:clear()")
-  (doseq [[t p v d] notes]
-    (let [l (inc (int (* t *lpb*)))]
+  (doseq [{:keys [t p v d]} notes]
+    (let [l (inc (int (* t 4 *lpb*)))]
       (ev "clj4rnx.note_column = clj4rnx.track:line(" l "):note_column(1)")
       (ev "clj4rnx.note_column.note_value = " p)
       (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
@@ -66,11 +66,12 @@
       (ev "clj4rnx.note_column.note_string = 'OFF'" ))))
 
 (defn set-bars [trk-idx bars]
+  (println "set-bars:" bars)
   (set-notes
    trk-idx
    (mapcat
     (fn [idx bar]
-      (map #(assoc %1 0 (+ (* 4 idx) (%1 0))) bar))
+      (map #(assoc %1 :t (+ idx (:t %1))) bar))
     (iterate inc 0)  bars)))
 
 (def n*
@@ -85,10 +86,22 @@
       :e4q {:p 52 :v 3/4 :d 1/4}
       })
 
+(defn- note-from-keyword [kw]
+  (if-let [[_ p oct d] (re-find #"([cdefgab])(\d*)([whqes]*)" (str kw))]
+    (let [p-map {"c" 0 "d" 2 "e" 4 "f" 5 "g" 7 "a" 9 "b" 11}
+          oct (if (= oct "") 4 (Integer. oct))
+          p (+ (* (Integer. oct) 12) (p-map p))
+          d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
+          d (if (= d "") 1/4 (reduce #(+ %1 (d-map %2)) 0 d))]
+      {:p p :v 3/4 :d d})
+    (throw (Exception. (str "note-from-keyword: unable to parse " kw)))))
+
+; (note-from-keyword :d)
+
 (defn- notes-from-keyword [ctx kw]
   (println "notes-from-keyword:" ctx kw)
-  (let [n (assoc (n* kw) :t (:t ctx))]
-                               (assoc ctx :t (+ (:t ctx) (:d n)) :ns (conj (:ns ctx) n))))
+  (let [n (assoc (note-from-keyword kw) :t (:t ctx))]
+    (assoc ctx :t (+ (:t ctx) (:d n)) :ns (conj (:ns ctx) n))))
 
 (defn- set-to-notes [ctx coll]
   (println "set-to-notes:" ctx coll)
@@ -192,7 +205,8 @@
 ; what about dur.
 (def *base-note* [0 48 3/4 1])
 (add-bar-f :whl #(repeat [*base-note*]))
-(add-bar-f :qtr #(repeat (map (fn [b] (assoc *base-note* 0 b)) (range 4))))
+;(add-bar-f :qtr #(repeat (map (fn [b] (assoc *base-note* 0 b)) (range 4))))
+(add-bar-f :qtr #(mapcat identity (repeat (coll-to-bars [:c :d :e :f]))))
 (add-bar-f :eth #(repeat (map (fn [b] (assoc *base-note* 0 (* b 1/2))) (range 8))))
 (add-bar-f :off-eth #(repeat (map (fn [b] (assoc *base-note* 0 (+ b 1/2))) (range 4))))
 (add-bar-f :six #(repeat (map (fn [b] (assoc *base-note* 0 (* b 1/4))) (range 16))))
@@ -205,11 +219,18 @@
 (defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
 (defn get-patr [name] ((@patr-fs* name)))
 
+(comment (add-patr-f :grv-1 (fn []
+                              {:bd (get-bars :whl)
+                               :sd (get-bars :qtr)
+                               :hh-c (get-bars :off-eth)
+                               :bass (get-bars :bass-1)
+                               })))
+
 (add-patr-f :grv-1 (fn []
-                       {:bd (get-bars :whl)
-                        :sd (get-bars :qtr)
-                        :hh-c (get-bars :off-eth)
-                        :bass (get-bars :bass-1)
+                       {:bd (get-bars :qtr)
+;                        :sd (get-bars :qtr)
+;                        :hh-c (get-bars :off-eth)
+;                        :bass (get-bars :bass-1)
                         }))
 
 (add-patr-f :grv-0 (fn []
@@ -217,14 +238,16 @@
                      ))
 
 ; (set-patrs (subvec patr-specs* 1 2))
+; (set-patr :grv-1 0 2)
 (defn set-patr [name idx bar-cnt]
   (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
   (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
   (let [patr (get-patr name)]
     (set-bars 1 (take bar-cnt (:bd patr)))
-    (set-bars 2 (take bar-cnt (:sd patr)))
-    (set-bars 3 (take bar-cnt (:hh-c patr)))
-    (set-bars 5 (take bar-cnt (:bass patr)))))
+;    (set-bars 2 (take bar-cnt (:sd patr)))
+;    (set-bars 3 (take bar-cnt (:hh-c patr)))
+;    (set-bars 5 (take bar-cnt (:bass patr)))
+    ))
 
 (def patr-specs* [{:patr :grv-0 :bar-cnt 2} {:patr :grv-1 :bar-cnt 2}])
 
@@ -269,3 +292,6 @@
 ; jfugue uses + to indicate vertical, - to indicate ties
 [:-1w+1q+5e ]
 
+
+; :c4www.v3:4
+(map #(re-find #"([cdefgab])(\d*)([whqes]*)" %) ["c4wwww" "c" "cw" "cwwwq"])
