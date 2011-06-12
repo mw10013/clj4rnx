@@ -86,22 +86,26 @@
       :e4q {:p 52 :v 3/4 :d 1/4}
       })
 
+;(map #(re-find #"(([cdefgab])(\d*))?([whqis]*)" %) ["c4" "w" "i" "d4" "e4h"]) 
+
 (defn- note-from-keyword [kw]
-  (if-let [[_ p oct d] (re-find #"([cdefgab])(\d*)([whqes]*)" (str kw))]
+  (if-let [[_ p? p oct d] (re-find #"(([cdefgab])(\d*))?([whqis]*)" (apply str (rest (str kw))))]
     (let [p-map {"c" 0 "d" 2 "e" 4 "f" 5 "g" 7 "a" 9 "b" 11}
-          oct (if (= oct "") 4 (Integer. oct))
-          p (+ (* (Integer. oct) 12) (p-map p))
-          d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
+          p (when p? (+ (* (Integer. (if (= oct "") 4 (Integer. oct))) 12) (p-map p)))
+          d-map {\w 1 \h 1/2 \q 1/4 \i 1/8 \s 1/12}
           d (if (= d "") 1/4 (reduce #(+ %1 (d-map %2)) 0 d))]
       {:p p :v 3/4 :d d})
     (throw (Exception. (str "note-from-keyword: unable to parse " kw)))))
 
+; (map #(note-from-keyword %) [:c4 :i :d4])
 ; (note-from-keyword :d)
 
 (defn- notes-from-keyword [ctx kw]
   (println "notes-from-keyword:" ctx kw)
   (let [n (assoc (note-from-keyword kw) :t (:t ctx))]
-    (assoc ctx :t (+ (:t ctx) (:d n)) :ns (conj (:ns ctx) n))))
+    (conj ctx [:t (+ (:t ctx) (:d n))] (when (:p n) [:ns (conj (:ns ctx) n)]))))
+
+(notes-from-keyword {:t 0 :ns [{:n 0}]} :i)
 
 (defn- set-to-notes [ctx coll]
   (println "set-to-notes:" ctx coll)
@@ -140,6 +144,7 @@
 ; (coll-to-bars [:c4w :c4w :c4e :c4e])
 
 ; (coll-to-notes [:c4w :c4w :c4e :c4e])
+; (coll-to-notes [:i :ci :i :ci])
 ; (coll-to-notes [#{:c4h [:d4q :e4q :c4q]}])
 ; (coll-to-notes [#{:c4h :d4q}])
 ; (coll-to-notes [#{[:c4s :c4s :c4s] [:d4e :d4e]}])
@@ -206,7 +211,7 @@
 (def *base-note* [0 48 3/4 1])
 (add-bar-f :whl #(repeat [*base-note*]))
 ;(add-bar-f :qtr #(repeat (map (fn [b] (assoc *base-note* 0 b)) (range 4))))
-(add-bar-f :qtr #(mapcat identity (repeat (coll-to-bars [:c :d :e :f]))))
+(add-bar-f :qtr #(mapcat identity (repeat (coll-to-bars [:i :ci :i :ei :f]))))
 (add-bar-f :eth #(repeat (map (fn [b] (assoc *base-note* 0 (* b 1/2))) (range 8))))
 (add-bar-f :off-eth #(repeat (map (fn [b] (assoc *base-note* 0 (+ b 1/2))) (range 4))))
 (add-bar-f :six #(repeat (map (fn [b] (assoc *base-note* 0 (* b 1/4))) (range 16))))
