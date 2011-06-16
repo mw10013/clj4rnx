@@ -74,19 +74,20 @@
       (map #(assoc %1 :t (+ idx (:t %1))) bar))
     (iterate inc 0)  bars)))
 
-;(map #(re-find #"(([cdefgab])(\d*))?([whqis]*)" %) ["c4" "w" "i" "d4" "e4h"]) 
+;(map #(re-find #"([_cdefgab])(\d*)?([whqes]*)" %) ["c4" "_w" "_e" "d4" "e4h"]) 
 
 (defn- note-from-keyword [kw]
-  (if-let [[_ p? p oct d] (re-find #"(([cdefgab])(\d*))?([whqis]*)" (apply str (rest (str kw))))]
-    (let [p-map {"c" 0 "d" 2 "e" 4 "f" 5 "g" 7 "a" 9 "b" 11}
-          p (when p? (+ (* (Integer. (if (= oct "") 4 (Integer. oct))) 12) (p-map p)))
-          d-map {\w 1 \h 1/2 \q 1/4 \i 1/8 \s 1/12}
+  (if-let [[n p oct d] (re-find #"([_cdefgab])(\d*)?([whqes]*)" (apply str (rest (str kw))))]
+    (let [_ (println n)
+          p-map {"c" 0 "d" 2 "e" 4 "f" 5 "g" 7 "a" 9 "b" 11}
+          p (when-not (= p "_") (+ (* (Integer. (if (= oct "") 4 (Integer. oct))) 12) (p-map p)))
+          d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
           d (if (= d "") 1/4 (reduce #(+ %1 (d-map %2)) 0 d))]
       {:p p :v 3/4 :d d})
     (throw (Exception. (str "note-from-keyword: unable to parse " kw)))))
 
-; (map #(note-from-keyword %) [:c4 :i :d4])
-; (note-from-keyword :d)
+; (map #(note-from-keyword %) [:c4 :_e :d4])
+; (note-from-keyword :_e)
 
 (defn- notes-from-keyword [ctx kw]
   (println "notes-from-keyword:" ctx kw)
@@ -126,7 +127,6 @@
           [] notes))
 
 (defn- coll-to-bars [coll] (->> coll coll-to-notes notes-to-bars))
-
 (defn- coll-to-infinite-bars [coll] (->> coll coll-to-bars repeat (mapcat identity)))
 
 (defn within-beats [l u & args]
@@ -144,10 +144,11 @@
 (defn get-bars [name] ((@bar-fs* name)))
 
 (add-bar-f :qtr #(coll-to-infinite-bars [:c :c :c :c]))
-(add-bar-f :off-qtr #(coll-to-infinite-bars [:q :c :q :c]))
-(add-bar-f :off-eth #(coll-to-infinite-bars [:i :ci :i :ci :i :ci :i :ci]))
-(add-bar-f :bass-1 #(coll-to-infinite-bars [:i :c3i :i :c3i :i :c3i :i :c3i :i :g2i :i :g2i :i :g2i :i :g2i :i]))
+(add-bar-f :off-qtr #(coll-to-infinite-bars [:_q :c :_q :c]))
+(add-bar-f :off-eth #(coll-to-infinite-bars [:_e :ce :_e :ce :_e :ce :_e :ce]))
+(add-bar-f :bass-1 #(coll-to-infinite-bars [:_e :c5e :_e :c5e :_e :ce :_e :ce :_e :g3e :_e :g3e :_e :g3e :_e :g3e :_e]))
 
+; (set-patr :grv-0 0 2)
 ; (set-patr :grv-1 0 2)
 ; (take 2 (get-bars :qtr))
 
@@ -155,19 +156,23 @@
 (defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
 (defn get-patr [name] ((@patr-fs* name)))
 
-(add-patr-f :grv-1 (fn []
+(add-patr-f :grv-1-full (fn []
                        {:bd (get-bars :qtr)
                         :sd (get-bars :off-qtr)
                         :hh-c (get-bars :off-eth)
                         :bass (get-bars :bass-1)
                         }))
 
-(add-patr-f :grv-0 (fn []
-                     (assoc {} :bd (:bd (get-patr :grv-1)))
-                     ))
+(add-patr-f :grv-1-bd (fn [] (select-keys (get-patr :grv-1-full) [:bd])))
+
+(add-patr-f :grv-1-bd-hh (fn [] (select-keys (get-patr :grv-1-full) [:bd :hh-c])))
+
+(add-patr-f :grv-1-bd-hh-sd (fn []
+                              (assoc (get-patr :grv-1-bd-hh) :sd (:sd (get-patr :grv-1-full)))))
 
 ; (set-patrs (subvec patr-specs* 1 2))
-; (set-patr :grv-1 0 2)
+; (set-patr :grv-1-bd 0 2)
+; (set-patr :grv-1-bd-hh 0 2)
 (defn set-patr [name idx bar-cnt]
   (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
   (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
@@ -175,16 +180,17 @@
     (set-bars 1 (take bar-cnt (:bd patr)))
     (set-bars 2 (take bar-cnt (:sd patr)))
     (set-bars 3 (take bar-cnt (:hh-c patr)))
-    (set-bars 5 (take bar-cnt (:bass patr)))
+    (set-bars 6 (take bar-cnt (:bass patr)))
     ))
 
-(def patr-specs* [{:patr :grv-0 :bar-cnt 2} {:patr :grv-1 :bar-cnt 2}])
+(def patr-specs* [{:patr :grv-1-bd :bar-cnt 1} {:patr :grv-1-bd-hh :bar-cnt 1} {:patr :grv-1-bd-hh-sd :bar-cnt 1}
+                  {:patr :grv-1-full :bar-cnt 2} ])
 
 (defn- set-patrs [specs]
   (map-indexed #(set-patr (:patr %2) %1 (:bar-cnt %2)) specs))
 
 (defn demo []
-  (reset-song {:patr-cnt 3 :track-cnt 7
+  (reset-song {:patr-cnt 4 :track-cnt 7
                :instrs [{:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}
@@ -195,4 +201,3 @@
   (set-patrs patr-specs*))
 
 ; (demo)
-
