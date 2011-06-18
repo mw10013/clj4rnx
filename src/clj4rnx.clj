@@ -83,10 +83,11 @@
           p (when-not (= p "_") (+ (* (Integer. (if (= oct "") 4 (Integer. oct))) 12) (p-map p)))
           d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
           d (if (= d "") 1/4 (reduce #(+ %1 (d-map %2)) 0 d))]
+      (println kw p d)
       {:p p :v 3/4 :d d})
     (throw (Exception. (str "note-from-keyword: unable to parse " kw)))))
 
-; (map #(note-from-keyword %) [:c4 :_e :d4])
+; (map #(note-from-keyword %) [:ce :_e :d4])
 ; (note-from-keyword :_e)
 
 (defn- notes-from-keyword [ctx kw]
@@ -94,12 +95,14 @@
   (let [n (assoc (note-from-keyword kw) :t (:t ctx))]
     (conj ctx [:t (+ (:t ctx) (:d n))] (when (:p n) [:ns (conj (:ns ctx) n)]))))
 
+(declare coll-to-notes)
+
 (defn- set-to-notes [ctx coll]
   (println "set-to-notes:" ctx coll)
   (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
                           (let [new-ctx (assoc new-ctx :t (:t ctx))
                                 new-ctx (cond
-                                         (vector? val) (from-coll new-ctx val)
+                                         (vector? val) (coll-to-notes new-ctx val)
                                          (keyword? val) (notes-from-keyword new-ctx val)
                                          :else (throw (Exception. (str "from-set: unexpected val: " val))))]
                             (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
@@ -116,7 +119,7 @@
                (cond
                 (set? val) (set-to-notes ctx val)
                 (keyword? val) (notes-from-keyword ctx val)
-                :else (throw (Exception. (str "from-coll: unexpected val: " val)))))
+                :else (throw (Exception. (str "coll-to-notes: unexpected val: " val)))))
              ctx coll)))
 
 (defn- notes-to-bars [notes]
@@ -128,6 +131,8 @@
 
 (defn- coll-to-bars [coll] (->> coll coll-to-notes notes-to-bars))
 (defn- coll-to-infinite-bars [coll] (->> coll coll-to-bars repeat (mapcat identity)))
+
+; (coll-to-bars [:_e :ce :_e :ce])
 
 (defn within-beats [l u & args]
   (let [len (if (odd? (count args)) (last args))
@@ -146,11 +151,16 @@
 (add-bar-f :qtr #(coll-to-infinite-bars [:c :c :c :c]))
 (add-bar-f :off-qtr #(coll-to-infinite-bars [:_q :c :_q :c]))
 (add-bar-f :off-eth #(coll-to-infinite-bars [:_e :ce :_e :ce :_e :ce :_e :ce]))
-(add-bar-f :bass-1 #(coll-to-infinite-bars [:_e :c5e :_e :c5e :_e :ce :_e :ce :_e :g3e :_e :g3e :_e :g3e :_e :g3e :_e]))
+(add-bar-f :hc-1 #(coll-to-infinite-bars [:c :c :c :ce :ce :c :c :c :ce :_s :cs]))
+(add-bar-f :bass-1 #(coll-to-infinite-bars [:_e :c5e :_e :c5e :_e :c5e :_e :c5e
+                                            :_e :ge :_e :ge :_e :ge :_e :ge
+                                            :_e :ae :_e :ae :_e :ae :_e :ae
+                                            :_e :fe :_e :fe :_e :fe :_e :fe
+                                            ]))
 
-; (set-patr :grv-0 0 2)
+; (set-patr :grv-1-full 0 8)
 ; (set-patr :grv-1 0 2)
-; (take 2 (get-bars :qtr))
+; (take 2 (get-bars :off-eth))
 
 (def patr-fs* (ref {}))
 (defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
@@ -160,6 +170,7 @@
                        {:bd (get-bars :qtr)
                         :sd (get-bars :off-qtr)
                         :hh-c (get-bars :off-eth)
+                        :hc (get-bars :hc-1)
                         :bass (get-bars :bass-1)
                         }))
 
@@ -180,17 +191,18 @@
     (set-bars 1 (take bar-cnt (:bd patr)))
     (set-bars 2 (take bar-cnt (:sd patr)))
     (set-bars 3 (take bar-cnt (:hh-c patr)))
+    (set-bars 5 (take bar-cnt (:hc patr)))
     (set-bars 6 (take bar-cnt (:bass patr)))
     ))
 
 (def patr-specs* [{:patr :grv-1-bd :bar-cnt 1} {:patr :grv-1-bd-hh :bar-cnt 1} {:patr :grv-1-bd-hh-sd :bar-cnt 1}
-                  {:patr :grv-1-full :bar-cnt 2} ])
+                  {:patr :grv-1-full :bar-cnt 8} ])
 
 (defn- set-patrs [specs]
   (map-indexed #(set-patr (:patr %2) %1 (:bar-cnt %2)) specs))
 
 (defn demo []
-  (reset-song {:patr-cnt 4 :track-cnt 7
+  (reset-song {:patr-cnt (count patr-specs*) :track-cnt 7
                :instrs [{:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}
