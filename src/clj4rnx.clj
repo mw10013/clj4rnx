@@ -53,30 +53,31 @@
     (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
   (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs ctx))))
 
-(defn set-notes [trk-idx notes]
+(comment (defn set-notes [trk-idx notes]
+           (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
+           (ev "clj4rnx.track:clear()")
+           (doseq [{:keys [t p v d]} notes]
+             (let [l (inc (int (* t 4 *lpb*)))]
+               (ev "clj4rnx.note_column = clj4rnx.track:line(" l "):note_column(1)")
+               (ev "clj4rnx.note_column.note_value = " p)
+               (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
+               (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
+               (ev "clj4rnx.note_column = clj4rnx.track:line(" (int (+  l (* d 4 *lpb*))) "):note_column(1)")
+               (ev "clj4rnx.note_column.note_string = 'OFF'" )))))
+
+(defn set-notes [trk-idx pitch-f notes]
   (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
   (ev "clj4rnx.track:clear()")
-  (doseq [{:keys [t p v d]} notes]
+  (doseq [{:keys [t deg oct v d]} notes]
     (let [l (inc (int (* t 4 *lpb*)))]
       (ev "clj4rnx.note_column = clj4rnx.track:line(" l "):note_column(1)")
-      (ev "clj4rnx.note_column.note_value = " p)
+      (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct))
       (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
       (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
       (ev "clj4rnx.note_column = clj4rnx.track:line(" (int (+  l (* d 4 *lpb*))) "):note_column(1)")
       (ev "clj4rnx.note_column.note_string = 'OFF'" ))))
 
-(defn set-bars [trk-idx bars]
-  (println "set-bars:" bars)
-  (set-notes
-   trk-idx
-   (mapcat
-    (fn [idx bar]
-      (map #(assoc %1 :t (+ idx (:t %1))) bar))
-    (iterate inc 0)  bars)))
-
-;(map #(re-find #"([_cdefgab])(\d*)?([whqes]*)" %) ["c4" "_w" "_e" "d4" "e4h"]) 
-
-(defn- note-from-keyword [kw]
+(defn- note-from-keyword- [kw]
   (if-let [[n p oct d] (re-find #"([_cdefgab])(\d*)?([whqes]*)" (apply str (rest (str kw))))]
     (let [_ (println n)
           p-map {"c" 0 "d" 2 "e" 4 "f" 5 "g" 7 "a" 9 "b" 11}
@@ -87,13 +88,26 @@
       {:p p :v 3/4 :d d})
     (throw (Exception. (str "note-from-keyword: unable to parse " kw)))))
 
-; (map #(note-from-keyword %) [:ce :_e :d4])
-; (note-from-keyword :_e)
+(def note-re* #"([+-]*)([1-9]*)([whqes]*)")
+; (map #(re-find note-re* %) ["1" "+22" "--7" "w"])
+
+(defn- note-from-keyword [kw]
+  (if-let [[n oct deg d] (re-find note-re* (apply str (rest (str kw))))]
+    (let [_ (println n)
+          oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
+          deg (if-not (= deg "") (Integer. deg))
+          d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
+          d (if (= d "") 1/4 (reduce #(+ %1 (d-map %2)) 0 d))]
+      (into {:d d} (if deg {:deg deg :oct oct :v 3/4})))
+    (throw (Exception. (str "note-from-keyword: unable to parse " kw)))))
+
+; (map #(note-from-keyword %) [:1e :e :+2 :-7s])
+; (note-from-keyword :e)
 
 (defn- notes-from-keyword [ctx kw]
   (println "notes-from-keyword:" ctx kw)
   (let [n (assoc (note-from-keyword kw) :t (:t ctx))]
-    (conj ctx [:t (+ (:t ctx) (:d n))] (when (:p n) [:ns (conj (:ns ctx) n)]))))
+    (conj ctx [:t (+ (:t ctx) (:d n))] (when (:deg n) [:ns (conj (:ns ctx) n)]))))
 
 (declare coll-to-notes)
 
@@ -132,7 +146,7 @@
 (defn- coll-to-bars [coll] (->> coll coll-to-notes notes-to-bars))
 (defn- coll-to-infinite-bars [coll] (->> coll coll-to-bars repeat (mapcat identity)))
 
-; (coll-to-bars [:_e :ce :_e :ce])
+; (coll-to-bars [:e :1e :e :1e])
 
 (defn within-beats [l u & args]
   (let [len (if (odd? (count args)) (last args))
@@ -148,19 +162,18 @@
 (defn add-bar-f [name f] (dosync (alter bar-fs* assoc name f)) nil)
 (defn get-bars [name] ((@bar-fs* name)))
 
-(add-bar-f :qtr #(coll-to-infinite-bars [:c :c :c :c]))
-(add-bar-f :off-qtr #(coll-to-infinite-bars [:_q :c :_q :c]))
-(add-bar-f :off-eth #(coll-to-infinite-bars [:_e :ce :_e :ce :_e :ce :_e :ce]))
-(add-bar-f :hc-1 #(coll-to-infinite-bars [:c :c :c :ce :ce :c :c :c :ce :_s :cs]))
-(add-bar-f :bass-1 #(coll-to-infinite-bars [:_e :c5e :_e :c5e :_e :c5e :_e :c5e
-                                            :_e :ge :_e :ge :_e :ge :_e :ge
-                                            :_e :ae :_e :ae :_e :ae :_e :ae
-                                            :_e :fe :_e :fe :_e :fe :_e :fe
+(add-bar-f :qtr #(coll-to-infinite-bars [:1 :1 :1 :1]))
+(add-bar-f :off-qtr #(coll-to-infinite-bars [:q :1 :q :1]))
+(add-bar-f :off-eth #(coll-to-infinite-bars [:e :1e :e :1e :e :1e :e :1e]))
+(add-bar-f :hc-1 #(coll-to-infinite-bars [:1 :1 :1 :1e :1e :1 :1 :1 :1e :s :1s]))
+(add-bar-f :bass-1 #(coll-to-infinite-bars [:e :+1e :e :+1e :e :+1e :e :+1e
+                                            :e :5e :e :5e :e :5e :e :5e
+                                            :e :6e :e :6e :e :6e :e :6e
+                                            :e :4e :e :4e :e :4e :e :4e
                                             ]))
 
 ; (set-patr :grv-1-full 0 8)
 ; (set-patr :grv-1 0 2)
-; (take 2 (get-bars :off-eth))
 
 (def patr-fs* (ref {}))
 (defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
@@ -181,18 +194,35 @@
 (add-patr-f :grv-1-bd-hh-sd (fn []
                               (assoc (get-patr :grv-1-bd-hh) :sd (:sd (get-patr :grv-1-full)))))
 
-; (set-patrs (subvec patr-specs* 1 2))
+(defn set-bars [trk-idx pitch-f bars]
+  (println "set-bars:" bars)
+  (set-notes
+   trk-idx
+   pitch-f
+   (mapcat
+    (fn [idx bar]
+      (map #(assoc %1 :t (+ idx (:t %1))) bar))
+    (iterate inc 0)  bars)))
+
+(defn- deg-to-pitch
+  ([deg oct]
+     (deg-to-pitch 48 deg oct))
+  ([base deg oct]
+      (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12))))
+
+; (map #(apply (partial deg-to-pitch 48) %) [[1 1] [2 0] [1 1]])
+
 ; (set-patr :grv-1-bd 0 2)
 ; (set-patr :grv-1-bd-hh 0 2)
 (defn set-patr [name idx bar-cnt]
   (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
   (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
   (let [patr (get-patr name)]
-    (set-bars 1 (take bar-cnt (:bd patr)))
-    (set-bars 2 (take bar-cnt (:sd patr)))
-    (set-bars 3 (take bar-cnt (:hh-c patr)))
-    (set-bars 5 (take bar-cnt (:hc patr)))
-    (set-bars 6 (take bar-cnt (:bass patr)))
+    (set-bars 1 deg-to-pitch (take bar-cnt (:bd patr)))
+    (set-bars 2 deg-to-pitch (take bar-cnt (:sd patr)))
+    (set-bars 3 deg-to-pitch (take bar-cnt (:hh-c patr)))
+    (set-bars 5 deg-to-pitch (take bar-cnt (:hc patr)))
+    (set-bars 6 deg-to-pitch (take bar-cnt (:bass patr)))
     ))
 
 (def patr-specs* [{:patr :grv-1-bd :bar-cnt 1} {:patr :grv-1-bd-hh :bar-cnt 1} {:patr :grv-1-bd-hh-sd :bar-cnt 1}
