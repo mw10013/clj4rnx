@@ -48,34 +48,41 @@
     (ev "clj4rnx.pattern.number_of_lines = " (* 4 *lpb*))
     (ev "clj4rnx.pattern:clear()"))
   (doseq [_ (range (dec (:track-cnt ctx)))]
-    (ev "clj4rnx.song:insert_track_at(" 1 ")"))
+    (ev "clj4rnx.track = clj4rnx.song:insert_track_at(" 1 ")")
+    (ev "clj4rnx.track.visible_note_columns = 3"))
   (doseq [_ (range (dec (count (:instrs ctx))))]
     (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
   (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs ctx))))
 
-(comment (defn set-notes [trk-idx notes]
-           (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
-           (ev "clj4rnx.track:clear()")
-           (doseq [{:keys [t p v d]} notes]
-             (let [l (inc (int (* t 4 *lpb*)))]
-               (ev "clj4rnx.note_column = clj4rnx.track:line(" l "):note_column(1)")
-               (ev "clj4rnx.note_column.note_value = " p)
-               (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
-               (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
-               (ev "clj4rnx.note_column = clj4rnx.track:line(" (int (+  l (* d 4 *lpb*))) "):note_column(1)")
-               (ev "clj4rnx.note_column.note_string = 'OFF'" )))))
+(defn- note-col [t off-t off-vec]
+  (println "note-col:" t off-t off-vec)
+  (let [index (or  (->> off-vec
+                        (map-indexed vector)
+                        (filter (fn [[index off-t]] (when (>= t off-t) index)))
+                        ffirst)
+                   (count off-vec))]
+    [index (assoc off-vec index off-t)]))
+
+; (note-col 1 2 [1])
+; (note-col 1/4 2 [3/4 0])
 
 (defn set-notes [trk-idx pitch-f notes]
+;  (println "set-notes:" trk-idx notes)
   (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
   (ev "clj4rnx.track:clear()")
-  (doseq [{:keys [t deg oct v d]} notes]
-    (let [l (inc (int (* t 4 *lpb*)))]
-      (ev "clj4rnx.note_column = clj4rnx.track:line(" l "):note_column(1)")
-      (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct))
-      (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
-      (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
-      (ev "clj4rnx.note_column = clj4rnx.track:line(" (int (+  l (* d 4 *lpb*))) "):note_column(1)")
-      (ev "clj4rnx.note_column.note_string = 'OFF'" ))))
+  (reduce (fn [off-vec {:keys [t deg oct v d]}]
+            (let [l (inc (int (* t 4 *lpb*)))
+                  _ (println "l:" l)
+                  [note-col off-vec] (note-col t (+ t d) off-vec)
+                  note-col (inc note-col)]
+              (ev "clj4rnx.note_column = clj4rnx.track:line(" l "):note_column(" note-col ")")
+              (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct))
+              (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
+              (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
+              (ev "clj4rnx.note_column = clj4rnx.track:line(" (int (+  l (* d 4 *lpb*))) "):note_column(" note-col ")")
+              (ev "clj4rnx.note_column.note_string = 'OFF'" )
+              off-vec))
+          [] notes))
 
 (defn- note-from-keyword- [kw]
   (if-let [[n p oct d] (re-find #"([_cdefgab])(\d*)?([whqes]*)" (apply str (rest (str kw))))]
@@ -112,7 +119,7 @@
 (declare coll-to-notes)
 
 (defn- set-to-notes [ctx coll]
-  (println "set-to-notes:" ctx coll)
+;  (println "set-to-notes:" ctx coll)
   (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
                           (let [new-ctx (assoc new-ctx :t (:t ctx))
                                 new-ctx (cond
@@ -121,14 +128,14 @@
                                          :else (throw (Exception. (str "from-set: unexpected val: " val))))]
                             (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
                         (assoc ctx :ns []  :max-t (:t ctx)) coll)]
-    (println "set-to-notes: new-ctx:" new-ctx)
+;    (println "set-to-notes: new-ctx:" new-ctx)
     (assoc new-ctx :t (:max-t new-ctx) :ns (concat (:ns ctx) (sort #(compare (:t %1) (:t %2)) (:ns new-ctx))))))
 
 (defn- coll-to-notes
   ([coll]
      (:ns (coll-to-notes {:t 0 :ns []} coll)))
   ([ctx coll]
-     (println "coll-to-notes:" ctx coll)
+;     (println "coll-to-notes:" ctx coll)
      (reduce (fn [ctx val]
                (cond
                 (set? val) (set-to-notes ctx val)
@@ -171,6 +178,7 @@
                                             :e :6e :e :6e :e :6e :e :6e
                                             :e :4e :e :4e :e :4e :e :4e
                                             ]))
+(add-bar-f :hov-1 #(coll-to-infinite-bars [#{:1q :5q}]))
 
 ; (set-patr :grv-1-full 0 8)
 ; (set-patr :grv-1 0 2)
@@ -185,6 +193,7 @@
                         :hh-c (get-bars :off-eth)
                         :hc (get-bars :hc-1)
                         :bass (get-bars :bass-1)
+                        :hov (get-bars :hov-1)
                         }))
 
 (add-patr-f :grv-1-bd (fn [] (select-keys (get-patr :grv-1-full) [:bd])))
@@ -195,7 +204,7 @@
                               (assoc (get-patr :grv-1-bd-hh) :sd (:sd (get-patr :grv-1-full)))))
 
 (defn set-bars [trk-idx pitch-f bars]
-  (println "set-bars:" bars)
+;  (println "set-bars:" bars)
   (set-notes
    trk-idx
    pitch-f
@@ -212,9 +221,10 @@
 
 ; (map #(apply (partial deg-to-pitch 48) %) [[1 1] [2 0] [1 1]])
 
-; (set-patr :grv-1-bd 0 2)
+; (set-patr :grv-1-bd 0 1)
 ; (set-patr :grv-1-bd-hh 0 2)
 (defn set-patr [name idx bar-cnt]
+;  (println "set-patr:" name idx)
   (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
   (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
   (let [patr (get-patr name)]
@@ -223,12 +233,15 @@
     (set-bars 3 deg-to-pitch (take bar-cnt (:hh-c patr)))
     (set-bars 5 deg-to-pitch (take bar-cnt (:hc patr)))
     (set-bars 6 deg-to-pitch (take bar-cnt (:bass patr)))
+    (set-bars 7 deg-to-pitch (take bar-cnt (:hov patr)))
     ))
 
 (def patr-specs* [{:patr :grv-1-bd :bar-cnt 1} {:patr :grv-1-bd-hh :bar-cnt 1} {:patr :grv-1-bd-hh-sd :bar-cnt 1}
                   {:patr :grv-1-full :bar-cnt 8} ])
 
+; (demo)
 (defn- set-patrs [specs]
+;  (println "set-patrs:" specs)
   (map-indexed #(set-patr (:patr %2) %1 (:bar-cnt %2)) specs))
 
 (defn demo []
