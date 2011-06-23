@@ -47,21 +47,25 @@
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" idx ")")
     (ev "clj4rnx.pattern.number_of_lines = " (* 4 *lpb*))
     (ev "clj4rnx.pattern:clear()"))
-  (doseq [_ (range (dec (:track-cnt ctx)))]
+  (doseq [_ (range (:track-cnt ctx))]
     (ev "clj4rnx.track = clj4rnx.song:insert_track_at(" 1 ")")
-    (ev "clj4rnx.track.visible_note_columns = 3"))
+;    (ev "clj4rnx.track.visible_note_columns = 2")
+    )
+  (ev "clj4rnx.song.delete_track_at(" (:track-cnt ctx) ")")
   (doseq [_ (range (dec (count (:instrs ctx))))]
     (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
   (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs ctx))))
 
 (defn- note-col [t off-t off-vec]
-  (println "note-col:" t off-t off-vec)
+;  (println "note-col:" t off-t off-vec)
   (let [index (or  (->> off-vec
                         (map-indexed vector)
                         (filter (fn [[index off-t]] (when (>= t off-t) index)))
                         ffirst)
                    (count off-vec))]
     [index (assoc off-vec index off-t)]))
+
+; (demo)
 
 ; (note-col 1 2 [1])
 ; (note-col 1/4 2 [3/4 0])
@@ -70,19 +74,21 @@
 ;  (println "set-notes:" trk-idx notes)
   (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
   (ev "clj4rnx.track:clear()")
-  (reduce (fn [off-vec {:keys [t deg oct v d]}]
-            (let [l (inc (int (* t 4 *lpb*)))
-                  _ (println "l:" l)
-                  [note-col off-vec] (note-col t (+ t d) off-vec)
-                  note-col (inc note-col)]
-              (ev "clj4rnx.note_column = clj4rnx.track:line(" l "):note_column(" note-col ")")
-              (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct))
-              (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
-              (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
-              (ev "clj4rnx.note_column = clj4rnx.track:line(" (int (+  l (* d 4 *lpb*))) "):note_column(" note-col ")")
-              (ev "clj4rnx.note_column.note_string = 'OFF'" )
-              off-vec))
-          [] notes))
+  (let [off-vec (reduce (fn [off-vec {:keys [t deg oct v d]}]
+                          (let [l (inc (int (* t 4 *lpb*)))
+                                [note-col off-vec] (note-col t (+ t d) off-vec)
+                                note-col (inc note-col)]
+                            (ev "clj4rnx.note_column = clj4rnx.track:line(" l "):note_column(" note-col ")")
+                            (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct))
+                            (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
+                            (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
+                            (ev "clj4rnx.note_column = clj4rnx.track:line(" (int (+  l (* d 4 *lpb*))) "):note_column(" note-col ")")
+                            (ev "clj4rnx.note_column.note_string = 'OFF'" )
+                            off-vec))
+                        [] notes)
+        vis-note-cols (count off-vec)]
+    (ev "if clj4rnx.song:track(" trk-idx ").visible_note_columns < " vis-note-cols
+        " then clj4rnx.song:track(" trk-idx ").visible_note_columns = " vis-note-cols " end")))
 
 (defn- note-from-keyword- [kw]
   (if-let [[n p oct d] (re-find #"([_cdefgab])(\d*)?([whqes]*)" (apply str (rest (str kw))))]
@@ -180,7 +186,7 @@
                                             ]))
 (add-bar-f :hov-1 #(coll-to-infinite-bars [#{:1q :5q}]))
 
-; (set-patr :grv-1-full 0 8)
+; (set-patr :grv-1-hov 0 1)
 ; (set-patr :grv-1 0 2)
 
 (def patr-fs* (ref {}))
@@ -197,11 +203,11 @@
                         }))
 
 (add-patr-f :grv-1-bd (fn [] (select-keys (get-patr :grv-1-full) [:bd])))
-
 (add-patr-f :grv-1-bd-hh (fn [] (select-keys (get-patr :grv-1-full) [:bd :hh-c])))
 
 (add-patr-f :grv-1-bd-hh-sd (fn []
                               (assoc (get-patr :grv-1-bd-hh) :sd (:sd (get-patr :grv-1-full)))))
+(add-patr-f :grv-1-hov (fn [] (select-keys (get-patr :grv-1-full) [:hov])))
 
 (defn set-bars [trk-idx pitch-f bars]
 ;  (println "set-bars:" bars)
