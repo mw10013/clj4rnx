@@ -1,4 +1,15 @@
 (ns clj4rnx
+  "
+  TODO:
+  accidentals
+  velocity/volumne
+  articulation
+  feel
+  triplets
+  dotted
+  automation
+  
+"
   (:require
    [clojure.string :as str]
    [clojure.java.io :as io]
@@ -35,6 +46,7 @@
 
 (defn reset-song [ctx]
   (ev "clj4rnx.song = renoise.song()")
+  (ev "clj4rnx.song.transport.bpm = " (:bpm ctx))
   (ev "clj4rnx.sequencer = clj4rnx.song.sequencer")
   (doseq [_ (range 25)]
     (ev "clj4rnx.sequencer:delete_sequence_at(" 1 ")")
@@ -65,11 +77,6 @@
                    (count off-vec))]
     [index (assoc off-vec index off-t)]))
 
-; (demo)
-
-; (note-col 1 2 [1])
-; (note-col 1/4 2 [3/4 0])
-
 (defn set-notes [trk-idx pitch-f notes]
 ;  (println "set-notes:" trk-idx notes)
   (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
@@ -90,23 +97,12 @@
     (ev "if clj4rnx.song:track(" trk-idx ").visible_note_columns < " vis-note-cols
         " then clj4rnx.song:track(" trk-idx ").visible_note_columns = " vis-note-cols " end")))
 
-(defn- note-from-keyword- [kw]
-  (if-let [[n p oct d] (re-find #"([_cdefgab])(\d*)?([whqes]*)" (apply str (rest (str kw))))]
-    (let [_ (println n)
-          p-map {"c" 0 "d" 2 "e" 4 "f" 5 "g" 7 "a" 9 "b" 11}
-          p (when-not (= p "_") (+ (* (Integer. (if (= oct "") 4 (Integer. oct))) 12) (p-map p)))
-          d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
-          d (if (= d "") 1/4 (reduce #(+ %1 (d-map %2)) 0 d))]
-      (println kw p d)
-      {:p p :v 3/4 :d d})
-    (throw (Exception. (str "note-from-keyword: unable to parse " kw)))))
-
-(def note-re* #"([+-]*)([1-9]*)([whqes]*)")
-; (map #(re-find note-re* %) ["1" "+22" "--7" "w"])
+(def note-re* #"([1-9]*)([+-]*)([whqes]*)")
+; (map #(re-find note-re* %) ["1" "2+" "7--" "w"])
 
 (defn- note-from-keyword [kw]
-  (if-let [[n oct deg d] (re-find note-re* (apply str (rest (str kw))))]
-    (let [_ (println n)
+  (if-let [[n deg oct d] (re-find note-re* (apply str (rest (str kw))))]
+    (let [; _ (println n)
           oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
           deg (if-not (= deg "") (Integer. deg))
           d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
@@ -118,7 +114,7 @@
 ; (note-from-keyword :e)
 
 (defn- notes-from-keyword [ctx kw]
-  (println "notes-from-keyword:" ctx kw)
+;  (println "notes-from-keyword:" ctx kw)
   (let [n (assoc (note-from-keyword kw) :t (:t ctx))]
     (conj ctx [:t (+ (:t ctx) (:d n))] (when (:deg n) [:ns (conj (:ns ctx) n)]))))
 
@@ -157,67 +153,51 @@
           [] notes))
 
 (defn- coll-to-bars [coll] (->> coll coll-to-notes notes-to-bars))
-(defn- coll-to-infinite-bars [coll] (->> coll coll-to-bars repeat (mapcat identity)))
-
-; (coll-to-bars [:e :1e :e :1e])
-
-(defn within-beats [l u & args]
-  (let [len (if (odd? (count args)) (last args))
-        coll (concat [[l u]] (partition 2 args))]
-    (fn [n]
-      (let [v (if len (mod (n 0) len) (n 0))]
-        (println "n: " n)
-        (some #(and (<= (first %) v) (<= v (last %))) coll)))))
-
-;  (take 8 (filter (within-beats 1/8 2) [[0 0] [1/8 1/8] [1/4 1/4] [2 2] [3 3]]))
+(defn- coll-to-inf-bars [coll] (->> coll coll-to-bars repeat (mapcat identity)))
 
 (def bar-fs* (ref {}))
 (defn add-bar-f [name f] (dosync (alter bar-fs* assoc name f)) nil)
+;(add-bar-f :qtr #(coll-to-inf-bars [:1 :1 :1 :1]))
 (defn get-bars [name] ((@bar-fs* name)))
 
-(add-bar-f :qtr #(coll-to-infinite-bars [:1 :1 :1 :1]))
-(add-bar-f :off-qtr #(coll-to-infinite-bars [:q :1 :q :1]))
-(add-bar-f :off-eth #(coll-to-infinite-bars [:e :1e :e :1e :e :1e :e :1e]))
-(add-bar-f :hc-1 #(coll-to-infinite-bars [:1 :1 :1 :1e :1e :1 :1 :1 :1e :s :1s]))
-(add-bar-f :bass-1 #(coll-to-infinite-bars [:e :+1e :e :+1e :e :+1e :e :+1e
-                                            :e :5e :e :5e :e :5e :e :5e
-                                            :e :6e :e :6e :e :6e :e :6e
-                                            :e :4e :e :4e :e :4e :e :4e
-                                            ]))
-(add-bar-f :hov-1 #(coll-to-infinite-bars [#{:1q :5q}]))
-
-; (set-patr :grv-1-hov 0 1)
 ; (set-patr :grv-1 0 2)
 
 (def patr-fs* (ref {}))
 (defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
+(defn get-patr-f [name] (@patr-fs* name))
 (defn get-patr [name] ((@patr-fs* name)))
 
 (add-patr-f :grv-1-full (fn []
-                       {:bd (get-bars :qtr)
-                        :sd (get-bars :off-qtr)
-                        :hh-c (get-bars :off-eth)
-                        :hc (get-bars :hc-1)
-                        :bass (get-bars :bass-1)
-                        :hov (get-bars :hov-1)
-                        }))
+                          {:bd (coll-to-inf-bars [:1 :1 :1 :1])
+                           :sd (coll-to-inf-bars [:q :1 :q :1])
+                           :hh-c (coll-to-inf-bars [:e :1e :e :1e :e :1e :e :1e])
+                           :hc (coll-to-inf-bars [:1 :1 :1 :1e :1e :1 :1 :1 :1e :s :1s])
+                           :bass (coll-to-inf-bars [:e :1+e :e :1+e :e :1+e :e :1+e
+                                                         :e :5e :e :5e :e :5e :e :5e
+                                                         :e :6e :e :6e :e :6e :e :6e
+                                                         :e :4e :e :4e :e :4e :e :4e])
+                           :hov (coll-to-inf-bars [#{:1q :5q}])
+                           :pad (coll-to-inf-bars [#{:1w [:1+h :2+h]}
+                                           #{:1w [:5h :6h]}
+                                           #{:1w [:6h :5h]}
+                                           #{:1w [:4h :5h]}])                        }))
 
 (add-patr-f :grv-1-bd (fn [] (select-keys (get-patr :grv-1-full) [:bd])))
 (add-patr-f :grv-1-bd-hh (fn [] (select-keys (get-patr :grv-1-full) [:bd :hh-c])))
+(add-patr-f :grv-1-bd-hh-sd (fn [] (select-keys (get-patr :grv-1-full) [:bd :hh-c :sd])))
 
-(add-patr-f :grv-1-bd-hh-sd (fn []
-                              (assoc (get-patr :grv-1-bd-hh) :sd (:sd (get-patr :grv-1-full)))))
-(add-patr-f :grv-1-hov (fn [] (select-keys (get-patr :grv-1-full) [:hov])))
+(def patr-specs*
+     [{:patr-f (get-patr-f :grv-1-bd) :bar-cnt 1}
+      {:patr-f (get-patr-f :grv-1-bd-hh) :bar-cnt 1}
+      {:patr-f (get-patr-f :grv-1-bd-hh-sd) :bar-cnt 1}
+      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4} ])
 
 (defn set-bars [trk-idx pitch-f bars]
-;  (println "set-bars:" bars)
-  (set-notes
-   trk-idx
-   pitch-f
-   (mapcat
-    (fn [idx bar]
-      (map #(assoc %1 :t (+ idx (:t %1))) bar))
-    (iterate inc 0)  bars)))
+  (set-notes trk-idx pitch-f
+             (mapcat
+              (fn [idx bar]
+                (map #(assoc %1 :t (+ idx (:t %1))) bar))
+              (iterate inc 0)  bars)))
 
 (defn- deg-to-pitch
   ([deg oct]
@@ -225,40 +205,35 @@
   ([base deg oct]
       (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12))))
 
-; (map #(apply (partial deg-to-pitch 48) %) [[1 1] [2 0] [1 1]])
-
-; (set-patr :grv-1-bd 0 1)
 ; (set-patr :grv-1-bd-hh 0 2)
-(defn set-patr [name idx bar-cnt]
+(defn set-patr [idx patr-f bar-cnt]
 ;  (println "set-patr:" name idx)
   (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
   (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
-  (let [patr (get-patr name)]
+  (let [patr (patr-f)]
     (set-bars 1 deg-to-pitch (take bar-cnt (:bd patr)))
     (set-bars 2 deg-to-pitch (take bar-cnt (:sd patr)))
     (set-bars 3 deg-to-pitch (take bar-cnt (:hh-c patr)))
     (set-bars 5 deg-to-pitch (take bar-cnt (:hc patr)))
     (set-bars 6 deg-to-pitch (take bar-cnt (:bass patr)))
     (set-bars 7 deg-to-pitch (take bar-cnt (:hov patr)))
-    ))
+    (set-bars 8 deg-to-pitch (take bar-cnt (:pad patr)))))
 
-(def patr-specs* [{:patr :grv-1-bd :bar-cnt 1} {:patr :grv-1-bd-hh :bar-cnt 1} {:patr :grv-1-bd-hh-sd :bar-cnt 1}
-                  {:patr :grv-1-full :bar-cnt 8} ])
-
-; (demo)
 (defn- set-patrs [specs]
-;  (println "set-patrs:" specs)
-  (map-indexed #(set-patr (:patr %2) %1 (:bar-cnt %2)) specs))
+  (map-indexed #(set-patr %1 (:patr-f %2) (:bar-cnt %2)) specs))
 
 (defn demo []
-  (reset-song {:patr-cnt (count patr-specs*) :track-cnt 7
+  (reset-song {:bpm 140 :patr-cnt (count patr-specs*) :track-cnt 7
                :instrs [{:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Open HH/VEC1 Cymbals  OH 001.wav"}
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}
                         {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}
-                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}]})
+                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
+;                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 104}
+                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}
+                        ]})
   (set-patrs patr-specs*))
 
 ; (demo)
