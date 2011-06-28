@@ -165,7 +165,6 @@
 (def patr-fs* (ref {}))
 (defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
 (defn get-patr-f [name] (@patr-fs* name))
-(defn get-patr [name] ((@patr-fs* name)))
 
 (add-patr-f :grv-1-full (fn []
                           {:bd (coll-to-inf-bars [:1 :1 :1 :1])
@@ -180,16 +179,12 @@
                            :pad (coll-to-inf-bars [#{:1w [:1+h :2+h]}
                                            #{:1w [:5h :6h]}
                                            #{:1w [:6h :5h]}
-                                           #{:1w [:4h :5h]}])                        }))
-
-(add-patr-f :grv-1-bd (fn [] (select-keys (get-patr :grv-1-full) [:bd])))
-(add-patr-f :grv-1-bd-hh (fn [] (select-keys (get-patr :grv-1-full) [:bd :hh-c])))
-(add-patr-f :grv-1-bd-hh-sd (fn [] (select-keys (get-patr :grv-1-full) [:bd :hh-c :sd])))
+                                           #{:1w [:4h :5h]}])}))
 
 (def patr-specs*
-     [{:patr-f (get-patr-f :grv-1-bd) :bar-cnt 1}
-      {:patr-f (get-patr-f :grv-1-bd-hh) :bar-cnt 1}
-      {:patr-f (get-patr-f :grv-1-bd-hh-sd) :bar-cnt 1}
+     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd])) :bar-cnt 1}
+      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
+      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
       {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4} ])
 
 (defn set-bars [trk-idx pitch-f bars]
@@ -231,9 +226,7 @@
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}
                         {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}
                         {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
-;                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 104}
-                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}
-                        ]})
+                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}]})
   (set-patrs patr-specs*))
 
 ; (demo)
