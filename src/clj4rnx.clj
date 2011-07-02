@@ -1,6 +1,7 @@
 (ns clj4rnx
   "
   TODO:
+  shape velocity
   accidentals
   velocity/volumne
   articulation
@@ -8,7 +9,6 @@
   triplets
   dotted
   automation
-  
 "
   (:require
    [clojure.string :as str]
@@ -160,14 +160,12 @@
 ;(add-bar-f :qtr #(coll-to-inf-bars [:1 :1 :1 :1]))
 (defn get-bars [name] ((@bar-fs* name)))
 
-; (set-patr :grv-1 0 2)
-
 (def patr-fs* (ref {}))
 (defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
 (defn get-patr-f [name] (@patr-fs* name))
 
 (add-patr-f :grv-1-full (fn []
-                          {:bd (coll-to-inf-bars [:1 :1 :1 :1])
+                          {:bd (coll-to-inf-bars [:1 :1 :1 :1 :1])
                            :sd (coll-to-inf-bars [:q :1 :q :1])
                            :hh-c (coll-to-inf-bars [:e :1e :e :1e :e :1e :e :1e])
                            :hc (coll-to-inf-bars [:1 :1 :1 :1e :1e :1 :1 :1 :1e :s :1s])
@@ -181,7 +179,9 @@
                                            #{:1w [:6h :5h]}
                                            #{:1w [:4h :5h]}])}))
 
-(def patr-specs*
+; (loop-patr 0)
+
+(def *patr-specs*
      [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd])) :bar-cnt 1}
       {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
       {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
@@ -200,8 +200,7 @@
   ([base deg oct]
       (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12))))
 
-; (set-patr :grv-1-bd-hh 0 2)
-(defn set-patr [idx patr-f bar-cnt]
+(defn set-patr- [idx patr-f bar-cnt]
 ;  (println "set-patr:" name idx)
   (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
   (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
@@ -214,11 +213,29 @@
     (set-bars 7 deg-to-pitch (take bar-cnt (:hov patr)))
     (set-bars 8 deg-to-pitch (take bar-cnt (:pad patr)))))
 
+(defn set-patr [{:keys [patr-f bar-cnt]} idx]
+  (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
+  (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
+  (let [patr (patr-f)]
+    (set-bars 1 deg-to-pitch (take bar-cnt (:bd patr)))
+    (set-bars 2 deg-to-pitch (take bar-cnt (:sd patr)))
+    (set-bars 3 deg-to-pitch (take bar-cnt (:hh-c patr)))
+    (set-bars 5 deg-to-pitch (take bar-cnt (:hc patr)))
+    (set-bars 6 deg-to-pitch (take bar-cnt (:bass patr)))
+    (set-bars 7 deg-to-pitch (take bar-cnt (:hov patr)))
+    (set-bars 8 deg-to-pitch (take bar-cnt (:pad patr)))))
+
+(defn loop-patr [idx]
+  (set-patr (*patr-specs* idx) idx)
+  (ev "clj4rnx.song.selected_sequence_index = " (inc idx))
+  (ev "clj4rnx.song.transport.loop_pattern = true")
+  (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
+
 (defn- set-patrs [specs]
-  (map-indexed #(set-patr %1 (:patr-f %2) (:bar-cnt %2)) specs))
+  (map-indexed #(set-patr %2 %1) specs))
 
 (defn demo []
-  (reset-song {:bpm 140 :patr-cnt (count patr-specs*) :track-cnt 7
+  (reset-song {:bpm 140 :patr-cnt (count *patr-specs*) :track-cnt 7
                :instrs [{:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}
@@ -227,6 +244,9 @@
                         {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}
                         {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
                         {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}]})
-  (set-patrs patr-specs*))
+  (set-patrs *patr-specs*))
 
 ; (demo)
+
+(defonce *interactive* false)
+(when *interactive* (loop-patr 0))
