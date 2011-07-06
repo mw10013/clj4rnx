@@ -14,12 +14,24 @@
    [clojure.string :as str]
    [clojure.java.io :as io]
    [clojure.contrib.math :as math]
+   [clojure.contrib.logging :as log]
    [osc :as osc]))
 
 (osc/osc-debug true)
 
 (def *lpb* 4)
 (defonce *client* (osc/osc-client "127.0.0.1" 8000))
+
+(defn set-log-level!
+  "http://www.paullegato.com/blog/setting-clojure-log-level/"
+  [level]
+  "Sets the root logger's level, and the level of all of its Handlers, to level."
+  (let [logger (log/impl-get-log "")]
+    (.setLevel logger level)
+    (doseq [handler (.getHandlers logger)]
+      (. handler setLevel level))))
+
+(set-log-level! java.util.logging.Level/FINEST)
 
 (defn ev [& args]
   (osc/osc-send *client* "/renoise/evaluate" (apply str args)))
@@ -30,6 +42,24 @@
 ; rprint(renoise.song():instrument(1).plugin_properties.plugin_device.presets)
 ; Audio/Generators/VST/Nexus
 ; Audio/Generators/VST/Sylenth1
+
+; rprint(renoise.song().tracks[1].available_devices)
+; Rprint(renoise.song().tracks[1].devices)
+; renoise.song().tracks[]:insert_device_at(device_name, device_index)
+; renoise.song().tracks:device(index)
+; renoise.song().tracks[].prefx_volume
+; renoise.song().tracks[].postfx_volume
+; renoise.song().patterns[].tracks[]:find_automation(parameter)
+; renoise.song().patterns[].tracks[]:create_automation(parameter)
+; renoise.song().patterns[].tracks[]:delete_automation(parameter)
+; renoise.song().patterns[].tracks[].automation[].playmode
+; renoise.song().patterns[1].tracks[1].automation[1].playmode = renoise.PatternTrackAutomation.PLAYMODE_POINTS
+; renoise.song().patterns[1].tracks[1].automation[1].playmode = renoise.PatternTrackAutomation.PLAYMODE_LINEAR
+; renoise.song().patterns[1].tracks[1].automation[1].playmode = renoise.PatternTrackAutomation.PLAYMODE_CUBIC
+; Renoise.song().patterns[].tracks[].automation[].points
+; rprint(renoise.song().patterns[1].tracks[1].automation[1].points)
+; renoise.song().patterns[1].tracks[1].automation[1].points = {{time=1, value=0.5},{time=5.5, value=1},{time=8, value=0}}
+; renoise.song().patterns[1].tracks[1].automation[1].points = {{time = 1, value = 1}, {time = 5, value = 0}}
 
 (defn reset-instr [ctx]
   (ev "clj4rnx.instrument = renoise.song():instrument(" (inc (:instr-idx ctx)) ")")
@@ -61,12 +91,20 @@
     (ev "clj4rnx.pattern:clear()"))
   (doseq [_ (range (:track-cnt ctx))]
     (ev "clj4rnx.track = clj4rnx.song:insert_track_at(" 1 ")")
-;    (ev "clj4rnx.track.visible_note_columns = 2")
     )
-  (ev "clj4rnx.song.delete_track_at(" (:track-cnt ctx) ")")
+;  (ev "clj4rnx.song.delete_track_at(" (:track-cnt ctx) ")") ; dflt trk
+
+  (dorun (map-indexed (fn [trk-idx {:keys [devices]}]
+                          (println "devices:" devices)
+                          (ev "clj4rnx.track = clj4rnx.song:track(" (inc trk-idx) ")")
+                          (dorun (map-indexed (fn [device-idx device-name]
+                                                (ev "clj4rnx.track:insert_device_at('" device-name "', " (+ device-idx 2) ")"))
+                                              devices)))  (:tracks ctx)))
   (doseq [_ (range (dec (count (:instrs ctx))))]
     (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
   (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs ctx))))
+
+; (demo)
 
 (defn- note-col [t off-t off-vec]
 ;  (println "note-col:" t off-t off-vec)
@@ -243,8 +281,11 @@
                         {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}
                         {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}
                         {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
-                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}]})
-  (set-patrs *patr-specs*))
+                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}]
+               :tracks [{:devices ["Audio/Effects/    Native/Delay"]}
+                        ]})
+  (set-patrs *patr-specs*)
+  )
 
 ; (demo)
 
