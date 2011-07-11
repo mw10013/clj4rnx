@@ -291,3 +291,46 @@
 
 (defonce *interactive* false)
 (when *interactive* (loop-patr 0))
+
+(def e-re* #"([\d/\.]*)([+-]*)([whqes]*)")
+; (map #(re-find e-re* %) ["1/4" "0.5" "1" "2+" "7--" "w"])
+
+(defn- parse-e [s]
+  (when-not (str/blank? s)
+    (if-let [[n deg oct d] (re-find e-re* s)]
+      (let [                            ; _ (println n)
+            oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
+            deg (if-not (= deg "") (read-string deg))
+            d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
+            d (if (= d "") 1/4 (reduce #(+ %1 (d-map %2)) 0 d))]
+        (conj {:d d}
+              (if deg [:deg deg])
+              (if-not (zero? oct) [:oct oct])))
+      (throw (Exception. (str "parse-e: unable to parse " s))))))
+
+(declare to-es)
+(defn- from-string [s] (->> (str/split s #"\s+") (map parse-e) flatten (remove nil?)))
+(defn- from-vector [x] (->> x (map to-es) flatten (remove nil?) vec))
+(defn- from-set [x] (->> x (map to-es) flatten (remove nil?) set))
+
+(defn- to-es
+  ([x] (to-es {:t 0 :es []} (log/spy x)))
+  ([ctx x]
+     (cond
+      (string? x) (from-string x)
+      (vector? x) (from-vector x)
+      (set? x) (from-set x)
+      :else (throw (Exception. (str "to-es: unexpected arg: " x))))))
+
+(defn- normalize [s]
+  (str \[ \" (str/replace s #"#\{|[}\[\]]" (into {} (map #(vector (str %) (str \" % \")) [\[ \] "#{" \}]))) \" \]))
+
+(defn- parse- [s]
+  (-> s normalize read-string (remove #(and (string? %) (str/blank? %))) ))
+
+(defn- parse [s] (->> s normalize read-string to-es))
+
+; (parse "1 q 1 q")
+; (parse "#{1 3 5}")
+; (parse "#{1w [1+h 2+h]}")
+
