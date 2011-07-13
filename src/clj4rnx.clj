@@ -119,7 +119,7 @@
 ;  (println "set-notes:" trk-idx notes)
   (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
   (ev "clj4rnx.track:clear()")
-  (let [off-vec (reduce (fn [off-vec {:keys [t deg oct v d]}]
+  (let [off-vec (reduce (fn [off-vec {:keys [t deg oct v d] :or {:oct 0 :v 3/4}}]
                           (let [l (inc (int (* t 4 *lpb*)))
                                 [note-col off-vec] (note-col t (+ t d) off-vec)
                                 note-col (inc note-col)]
@@ -308,27 +308,29 @@
               (if-not (zero? oct) [:oct oct])))
       (throw (Exception. (str "parse-e: unable to parse " s))))))
 
-(declare to-es)
-(defn- from-string [s] (->> (str/split s #"\s+") (map parse-e) flatten (remove nil?)))
-(defn- from-vector [x] (->> x (map to-es) flatten (remove nil?) vec))
-(defn- from-set [x] (->> x (map to-es) flatten (remove nil?) set))
+(defn- to-e [x]
+  (cond
+   (string? x) (->> (str/split x #"\s+") (map parse-e))
+   (vector? x) (->> x (map to-e) flatten(remove nil?) vec)
+   (set? x) (->> x (map to-e) flatten (remove nil?) set)
+   :else (throw (Exception. (str "to-e: unexpected arg: " x)))))
 
 (defn- to-es
-  ([x] (to-es {:t 0 :es []} (log/spy x)))
+  ([x] (to-es {:t 0 :es []} x))
   ([ctx x]
      (cond
-      (string? x) (from-string x)
-      (vector? x) (from-vector x)
-      (set? x) (from-set x)
-      :else (throw (Exception. (str "to-es: unexpected arg: " x))))))
+      (map? x) (conj ctx [:t (+ (:t ctx) (:d x))] (when (:deg x) [:es (conj (:es ctx) (assoc x :t (:t ctx)))]))
+      (vector? x) (reduce (fn [ctx x] (to-es ctx x)) ctx x)
+      (set? x) (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
+                                       (let [new-ctx (to-es (assoc new-ctx :t (:t ctx)) val)]
+                                         (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
+                                     (assoc ctx :es [] :max-t (:t ctx)) x)]
+                 (assoc new-ctx :t (:max-t new-ctx) :es (concat (:es ctx) (sort #(compare (:t %1) (:t %2)) (:es new-ctx))))))))
 
 (defn- normalize [s]
   (str \[ \" (str/replace s #"#\{|[}\[\]]" (into {} (map #(vector (str %) (str \" % \")) [\[ \] "#{" \}]))) \" \]))
 
-(defn- parse- [s]
-  (-> s normalize read-string (remove #(and (string? %) (str/blank? %))) ))
-
-(defn- parse [s] (->> s normalize read-string to-es))
+(defn- parse [s] (->> s normalize read-string to-e to-es))
 
 ; (parse "1 q 1 q")
 ; (parse "#{1 3 5}")
