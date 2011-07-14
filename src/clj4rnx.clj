@@ -115,11 +115,12 @@
                    (count off-vec))]
     [index (assoc off-vec index off-t)]))
 
+; (demo)
+
 (defn set-notes [trk-idx pitch-f notes]
-;  (println "set-notes:" trk-idx notes)
   (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
   (ev "clj4rnx.track:clear()")
-  (let [off-vec (reduce (fn [off-vec {:keys [t deg oct v d] :or {:oct 0 :v 3/4}}]
+  (let [off-vec (reduce (fn [off-vec {:keys [t deg oct v d] :as e :or {oct 0 v 3/4}}] 
                           (let [l (inc (int (* t 4 *lpb*)))
                                 [note-col off-vec] (note-col t (+ t d) off-vec)
                                 note-col (inc note-col)]
@@ -193,6 +194,59 @@
 (defn- coll-to-bars [coll] (->> coll coll-to-notes notes-to-bars))
 (defn- coll-to-inf-bars [coll] (->> coll coll-to-bars repeat (mapcat identity)))
 
+(def e-re* #"([\d/\.]*)([+-]*)([whqes]*)")
+; (map #(re-find e-re* %) ["1/4" "0.5" "1" "2+" "7--" "w"])
+
+(defn- parse-e [s]
+  (when-not (str/blank? s)
+    (if-let [[n deg oct d] (re-find e-re* s)]
+      (let [                            ; _ (println n)
+            oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
+            deg (if-not (= deg "") (read-string deg))
+            d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
+            d (if (= d "") 1/4 (reduce #(+ %1 (d-map %2)) 0 d))]
+        (conj {:d d}
+              (if deg [:deg deg])
+              (if-not (zero? oct) [:oct oct])))
+      (throw (Exception. (str "parse-e: unable to parse " s))))))
+
+(defn- to-e [x]
+  (cond
+   (string? x) (->> (str/split x #"\s+") (map parse-e))
+   (vector? x) (->> x (map to-e) flatten(remove nil?) vec)
+   (set? x) (->> x (map to-e) flatten (remove nil?) set)
+   :else (throw (Exception. (str "to-e: unexpected arg: " x)))))
+
+(defn- to-es
+  ([x] (to-es {:t 0 :es []} x))
+  ([ctx x]
+     (cond
+      (map? x) (conj ctx [:t (+ (:t ctx) (:d x))] (when (:deg x) [:es (conj (:es ctx) (assoc x :t (:t ctx)))]))
+      (vector? x) (reduce (fn [ctx x] (to-es ctx x)) ctx x)
+      (set? x) (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
+                                       (let [new-ctx (to-es (assoc new-ctx :t (:t ctx)) val)]
+                                         (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
+                                     (assoc ctx :es [] :max-t (:t ctx)) x)]
+                 (assoc new-ctx :t (:max-t new-ctx) :es (concat (:es ctx) (sort #(compare (:t %1) (:t %2)) (:es new-ctx))))))))
+
+(defn- es-to-bars [es]
+  (reduce (fn [bars {t :t :as e}]
+            (let [idx (int t)
+                  bars (into bars (repeat (- (inc idx) (count bars)) []))]
+              (assoc bars idx (conj (bars idx) (assoc e :t (- (e :t) idx))))))
+          [] es))
+
+(defn- normalize [s]
+  (str \[ \" (str/replace s #"#\{|[}\[\]]" (into {} (map #(vector (str %) (str \" % \")) [\[ \] "#{" \}]))) \" \]))
+
+(defn- parse [s] (->> s normalize read-string to-e to-es :es es-to-bars repeat (mapcat identity)))
+
+; (take 1  (parse "1+h 2+h"))
+; (take 2 (parse "#{1w [1+h 2+h]}"))
+; (take 5 (parse "1 q 1 q"))
+; (take 2 (parse "#{1 3 5h}"))
+; (take 2 (parse "#{1w [1+h 2+h]}"))
+
 (def bar-fs* (ref {}))
 (defn add-bar-f [name f] (dosync (alter bar-fs* assoc name f)) nil)
 ;(add-bar-f :qtr #(coll-to-inf-bars [:1 :1 :1 :1]))
@@ -203,19 +257,19 @@
 (defn get-patr-f [name] (@patr-fs* name))
 
 (add-patr-f :grv-1-full (fn []
-                          {:bd (coll-to-inf-bars [:1 :1 :1 :1 :1])
-                           :sd (coll-to-inf-bars [:q :1 :q :1])
-                           :hh-c (coll-to-inf-bars [:e :1e :e :1e :e :1e :e :1e])
-                           :hc (coll-to-inf-bars [:1 :1 :1 :1e :1e :1 :1 :1 :1e :s :1s])
-                           :bass (coll-to-inf-bars [:e :1+e :e :1+e :e :1+e :e :1+e
-                                                         :e :5e :e :5e :e :5e :e :5e
-                                                         :e :6e :e :6e :e :6e :e :6e
-                                                         :e :4e :e :4e :e :4e :e :4e])
-                           :hov (coll-to-inf-bars [#{:1q :5q}])
-                           :pad (coll-to-inf-bars [#{:1w [:1+h :2+h]}
-                                           #{:1w [:5h :6h]}
-                                           #{:1w [:6h :5h]}
-                                           #{:1w [:4h :5h]}])}))
+                          {:bd (parse "1 1 1 1")
+                           :sd (parse "q 1 q 1")
+                           :hh-c (parse "e 1e e 1e e 1e e 1e")
+                           :hc (parse "1 1 1 1e 1e 1 1 1 1e s 1s")
+                           :bass (parse "e 1+e e 1+e e 1+e e 1+e
+e 5e e 5e e 5e e 5e
+e 6e e 6e e 6e e 6e
+e 4e e 4e e 4e e 4e")
+                           :hov (parse "#{1q 5q}")
+                           :pad (parse "#{1w [1+h 2+h]}
+#{1w [5h 6h]}
+#{1w [6h 5h]}
+#{1w [4h 5h]}")}))
 
 ; (loop-patr 0)
 
@@ -292,47 +346,4 @@
 (defonce *interactive* false)
 (when *interactive* (loop-patr 0))
 
-(def e-re* #"([\d/\.]*)([+-]*)([whqes]*)")
-; (map #(re-find e-re* %) ["1/4" "0.5" "1" "2+" "7--" "w"])
-
-(defn- parse-e [s]
-  (when-not (str/blank? s)
-    (if-let [[n deg oct d] (re-find e-re* s)]
-      (let [                            ; _ (println n)
-            oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
-            deg (if-not (= deg "") (read-string deg))
-            d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
-            d (if (= d "") 1/4 (reduce #(+ %1 (d-map %2)) 0 d))]
-        (conj {:d d}
-              (if deg [:deg deg])
-              (if-not (zero? oct) [:oct oct])))
-      (throw (Exception. (str "parse-e: unable to parse " s))))))
-
-(defn- to-e [x]
-  (cond
-   (string? x) (->> (str/split x #"\s+") (map parse-e))
-   (vector? x) (->> x (map to-e) flatten(remove nil?) vec)
-   (set? x) (->> x (map to-e) flatten (remove nil?) set)
-   :else (throw (Exception. (str "to-e: unexpected arg: " x)))))
-
-(defn- to-es
-  ([x] (to-es {:t 0 :es []} x))
-  ([ctx x]
-     (cond
-      (map? x) (conj ctx [:t (+ (:t ctx) (:d x))] (when (:deg x) [:es (conj (:es ctx) (assoc x :t (:t ctx)))]))
-      (vector? x) (reduce (fn [ctx x] (to-es ctx x)) ctx x)
-      (set? x) (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
-                                       (let [new-ctx (to-es (assoc new-ctx :t (:t ctx)) val)]
-                                         (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
-                                     (assoc ctx :es [] :max-t (:t ctx)) x)]
-                 (assoc new-ctx :t (:max-t new-ctx) :es (concat (:es ctx) (sort #(compare (:t %1) (:t %2)) (:es new-ctx))))))))
-
-(defn- normalize [s]
-  (str \[ \" (str/replace s #"#\{|[}\[\]]" (into {} (map #(vector (str %) (str \" % \")) [\[ \] "#{" \}]))) \" \]))
-
-(defn- parse [s] (->> s normalize read-string to-e to-es))
-
-; (parse "1 q 1 q")
-; (parse "#{1 3 5}")
-; (parse "#{1w [1+h 2+h]}")
 
