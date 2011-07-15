@@ -195,7 +195,10 @@
 (defn- coll-to-inf-bars [coll] (->> coll coll-to-bars repeat (mapcat identity)))
 
 (def e-re* #"([\d/\.]*)([+-]*)([whqes]*)")
-; (map #(re-find e-re* %) ["1/4" "0.5" "1" "2+" "7--" "w"])
+; (map #(re-find e-re* %) ["1/4 1 e" "0.5" "1" "2+" "7--" "e"])
+; (str/replace "#{1 [e 2+]}" e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") ""))
+; (str/replace "e" e-re*  #(str \- (% 0) \-))
+; (str/replace "1" e-re* #(-> % type str))
 
 (defn- parse-e [s]
   (when-not (str/blank? s)
@@ -208,14 +211,14 @@
         (conj {:d d}
               (if deg [:deg deg])
               (if-not (zero? oct) [:oct oct])))
-      (throw (Exception. (str "parse-e: unable to parse " s))))))
+      (throw (IllegalArgumentException. (str "parse-e: unable to parse " s))))))
 
 (defn- to-e [x]
   (cond
-   (string? x) (->> (str/split x #"\s+") (map parse-e))
-   (vector? x) (->> x (map to-e) flatten(remove nil?) vec)
-   (set? x) (->> x (map to-e) flatten (remove nil?) set)
-   :else (throw (Exception. (str "to-e: unexpected arg: " x)))))
+   (string? x) (parse-e x)
+   (vector? x) (->> x (map to-e) vec)
+   (set? x) (->> x (map to-e) set)
+   :else (throw (IllegalArgumentException. (str "to-e: unexpected arg: " x)))))
 
 (defn- to-es
   ([x] (to-es {:t 0 :es []} x))
@@ -237,12 +240,17 @@
           [] es))
 
 (defn- normalize [s]
-  (str \[ \" (str/replace s #"#\{|[}\[\]]" (into {} (map #(vector (str %) (str \" % \")) [\[ \] "#{" \}]))) \" \]))
+  (str \[ (str/replace s  e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") "")) \]))
 
 (defn- parse [s] (->> s normalize read-string to-e to-es :es es-to-bars repeat (mapcat identity)))
 
-; (take 1  (parse "1+h 2+h"))
+; (->> "#{1w 5w [1+h 2+h]}" normalize read-string to-e to-es :es)
+; (->> "[1 1 1 1]" normalize read-string to-e to-es :es)
+; (->> "#{1w [5 6 7 8]}" normalize read-string to-e to-es :es)
+; "[\"\"#{\"\"[\"1+h 2+h\"]\"\"}\"\"]"
+; (take 1  (parse "#{[1+h 2+h]}"))
 ; (take 2 (parse "#{1w [1+h 2+h]}"))
+; (take 2 (parse "1 1 1 1"))
 ; (take 5 (parse "1 q 1 q"))
 ; (take 2 (parse "#{1 3 5h}"))
 ; (take 2 (parse "#{1w [1+h 2+h]}"))
