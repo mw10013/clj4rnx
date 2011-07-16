@@ -90,9 +90,7 @@
     (ev "clj4rnx.pattern.number_of_lines = " (* 4 *lpb*))
     (ev "clj4rnx.pattern:clear()"))
   (doseq [_ (range (:track-cnt ctx))]
-    (ev "clj4rnx.track = clj4rnx.song:insert_track_at(" 1 ")")
-    )
-;  (ev "clj4rnx.song.delete_track_at(" (:track-cnt ctx) ")") ; dflt trk
+    (ev "clj4rnx.track = clj4rnx.song:insert_track_at(" 1 ")"))
 
   (dorun (map-indexed (fn [trk-idx {:keys [devices]}]
                           (println "devices:" devices)
@@ -115,8 +113,6 @@
                    (count off-vec))]
     [index (assoc off-vec index off-t)]))
 
-; (demo)
-
 (defn set-notes [trk-idx pitch-f notes]
   (ev "clj4rnx.track = clj4rnx.pattern:track(" trk-idx ")")
   (ev "clj4rnx.track:clear()")
@@ -136,69 +132,8 @@
     (ev "if clj4rnx.song:track(" trk-idx ").visible_note_columns < " vis-note-cols
         " then clj4rnx.song:track(" trk-idx ").visible_note_columns = " vis-note-cols " end")))
 
-(def note-re* #"([1-9]*)([+-]*)([whqes]*)")
-; (map #(re-find note-re* %) ["1" "2+" "7--" "w"])
-
-(defn- note-from-keyword [kw]
-  (if-let [[n deg oct d] (re-find note-re* (apply str (rest (str kw))))]
-    (let [; _ (println n)
-          oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
-          deg (if-not (= deg "") (Integer. deg))
-          d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
-          d (if (= d "") 1/4 (reduce #(+ %1 (d-map %2)) 0 d))]
-      (into {:d d} (if deg {:deg deg :oct oct :v 3/4})))
-    (throw (Exception. (str "note-from-keyword: unable to parse " kw)))))
-
-; (map #(note-from-keyword %) [:1e :e :+2 :-7s])
-; (note-from-keyword :e)
-
-(defn- notes-from-keyword [ctx kw]
-;  (println "notes-from-keyword:" ctx kw)
-  (let [n (assoc (note-from-keyword kw) :t (:t ctx))]
-    (conj ctx [:t (+ (:t ctx) (:d n))] (when (:deg n) [:ns (conj (:ns ctx) n)]))))
-
-(declare coll-to-notes)
-
-(defn- set-to-notes [ctx coll]
-;  (println "set-to-notes:" ctx coll)
-  (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
-                          (let [new-ctx (assoc new-ctx :t (:t ctx))
-                                new-ctx (cond
-                                         (vector? val) (coll-to-notes new-ctx val)
-                                         (keyword? val) (notes-from-keyword new-ctx val)
-                                         :else (throw (Exception. (str "from-set: unexpected val: " val))))]
-                            (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
-                        (assoc ctx :ns []  :max-t (:t ctx)) coll)]
-;    (println "set-to-notes: new-ctx:" new-ctx)
-    (assoc new-ctx :t (:max-t new-ctx) :ns (concat (:ns ctx) (sort #(compare (:t %1) (:t %2)) (:ns new-ctx))))))
-
-(defn- coll-to-notes
-  ([coll]
-     (:ns (coll-to-notes {:t 0 :ns []} coll)))
-  ([ctx coll]
-;     (println "coll-to-notes:" ctx coll)
-     (reduce (fn [ctx val]
-               (cond
-                (set? val) (set-to-notes ctx val)
-                (keyword? val) (notes-from-keyword ctx val)
-                :else (throw (Exception. (str "coll-to-notes: unexpected val: " val)))))
-             ctx coll)))
-
-(defn- notes-to-bars [notes]
-  (reduce (fn [bars {t :t :as n}]
-            (let [idx (int t)
-                  bars (into bars (repeat (- (inc idx) (count bars)) []))]
-              (assoc bars idx (conj (bars idx) (assoc n :t (- (n :t) idx))))))
-          [] notes))
-
-(defn- coll-to-bars [coll] (->> coll coll-to-notes notes-to-bars))
-(defn- coll-to-inf-bars [coll] (->> coll coll-to-bars repeat (mapcat identity)))
-
 (def e-re* #"([\d/\.]*)([+-]*)([whqes]*)")
 ; (map #(re-find e-re* %) ["1/4 1 e" "0.5" "1" "2+" "7--" "e"])
-; (str/replace "#{1 [e 2+]}" e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") ""))
-; (str/replace "e" e-re*  #(str \- (% 0) \-))
-; (str/replace "1" e-re* #(-> % type str))
 
 (defn- parse-e [s]
   (when-not (str/blank? s)
@@ -236,28 +171,21 @@
   (reduce (fn [bars {t :t :as e}]
             (let [idx (int t)
                   bars (into bars (repeat (- (inc idx) (count bars)) []))]
-              (assoc bars idx (conj (bars idx) (assoc e :t (- (e :t) idx))))))
-          [] es))
+              (assoc bars idx (conj (bars idx) (assoc e :t (- (e :t) idx)))))) [] es))
 
-(defn- normalize [s]
-  (str \[ (str/replace s  e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") "")) \]))
+(defn- normalize [s] (str \[ (str/replace s  e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") "")) \]))
 
 (defn- parse [s] (->> s normalize read-string to-e to-es :es es-to-bars repeat (mapcat identity)))
 
 ; (->> "#{1w 5w [1+h 2+h]}" normalize read-string to-e to-es :es)
 ; (->> "[1 1 1 1]" normalize read-string to-e to-es :es)
 ; (->> "#{1w [5 6 7 8]}" normalize read-string to-e to-es :es)
-; "[\"\"#{\"\"[\"1+h 2+h\"]\"\"}\"\"]"
 ; (take 1  (parse "#{[1+h 2+h]}"))
 ; (take 2 (parse "#{1w [1+h 2+h]}"))
 ; (take 2 (parse "1 1 1 1"))
-; (take 5 (parse "1 q 1 q"))
-; (take 2 (parse "#{1 3 5h}"))
-; (take 2 (parse "#{1w [1+h 2+h]}"))
 
 (def bar-fs* (ref {}))
 (defn add-bar-f [name f] (dosync (alter bar-fs* assoc name f)) nil)
-;(add-bar-f :qtr #(coll-to-inf-bars [:1 :1 :1 :1]))
 (defn get-bars [name] ((@bar-fs* name)))
 
 (def patr-fs* (ref {}))
@@ -299,19 +227,6 @@ e 4e e 4e e 4e e 4e")
      (deg-to-pitch 48 deg oct))
   ([base deg oct]
       (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12))))
-
-(defn set-patr- [idx patr-f bar-cnt]
-;  (println "set-patr:" name idx)
-  (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
-  (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
-  (let [patr (patr-f)]
-    (set-bars 1 deg-to-pitch (take bar-cnt (:bd patr)))
-    (set-bars 2 deg-to-pitch (take bar-cnt (:sd patr)))
-    (set-bars 3 deg-to-pitch (take bar-cnt (:hh-c patr)))
-    (set-bars 5 deg-to-pitch (take bar-cnt (:hc patr)))
-    (set-bars 6 deg-to-pitch (take bar-cnt (:bass patr)))
-    (set-bars 7 deg-to-pitch (take bar-cnt (:hov patr)))
-    (set-bars 8 deg-to-pitch (take bar-cnt (:pad patr)))))
 
 (defn set-patr [{:keys [patr-f bar-cnt]} idx]
   (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
