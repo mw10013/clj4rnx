@@ -46,7 +46,9 @@
 ; rprint(renoise.song().tracks[1].available_devices)
 ; Rprint(renoise.song().tracks[1].devices)
 ; renoise.song().tracks[]:insert_device_at(device_name, device_index)
-; renoise.song().tracks:device(index)
+; renoise.song().tracks[]:device(index)
+; renoise.song().tracks[].devices[].parameters[]
+; renoise.song().tracks[].devices[].parameters[].name
 ; renoise.song().tracks[].prefx_volume
 ; renoise.song().tracks[].postfx_volume
 ; renoise.song().patterns[].tracks[]:find_automation(parameter)
@@ -56,7 +58,7 @@
 ; renoise.song().patterns[1].tracks[1].automation[1].playmode = renoise.PatternTrackAutomation.PLAYMODE_POINTS
 ; renoise.song().patterns[1].tracks[1].automation[1].playmode = renoise.PatternTrackAutomation.PLAYMODE_LINEAR
 ; renoise.song().patterns[1].tracks[1].automation[1].playmode = renoise.PatternTrackAutomation.PLAYMODE_CUBIC
-; Renoise.song().patterns[].tracks[].automation[].points
+; renoise.song().patterns[].tracks[].automation[].points
 ; rprint(renoise.song().patterns[1].tracks[1].automation[1].points)
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time=1, value=0.5},{time=5.5, value=1},{time=8, value=0}}
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time = 1, value = 1}, {time = 5, value = 0}}
