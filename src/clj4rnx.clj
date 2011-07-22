@@ -85,22 +85,25 @@
     (ev "clj4rnx.song:delete_track_at(" 1 ")")
     (ev "clj4rnx.song:delete_instrument_at(" 1 ")"))
   
-  (doseq [idx (range 1 (inc (:patr-cnt ctx)))]
+  (doseq [idx (range 1 (-> ctx :patrs count inc))]
     (when-not (= idx 1)
       (ev "clj4rnx.sequencer:insert_sequence_at(" idx ", " idx ")"))
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" idx ")")
     (ev "clj4rnx.pattern.number_of_lines = " (* 4 *lpb*))
     (ev "clj4rnx.pattern:clear()"))
-  (doseq [_ (range (:track-cnt ctx))]
+
+  (doseq [_ (range (-> ctx :tracks count))]
     (ev "clj4rnx.track = clj4rnx.song:insert_track_at(" 1 ")"))
 
-  (dorun (map-indexed (fn [trk-idx {:keys [devices]}]
-                          (println "devices:" devices)
-                          (ev "clj4rnx.track = clj4rnx.song:track(" (inc trk-idx) ")")
-                          (dorun (map-indexed (fn [device-idx device-name]
-                                                (ev "clj4rnx.track:insert_device_at('" device-name "', " (+ device-idx 2) ")"))
-                                              devices)))  (:tracks ctx)))
-  (doseq [_ (range (dec (count (:instrs ctx))))]
+  (dotimes [n (-> ctx :tracks count)]
+          (let [{:keys [id index devices]} (-> ctx :tracks (get n))]
+            (ev "clj4rnx.track = clj4rnx.song:track(" (inc n) ")")
+            (ev "clj4rnx.track.name = '" (name id) "'")
+            (dorun (map-indexed (fn [device-idx device-name]
+                                  (ev "clj4rnx.track:insert_device_at('" device-name "', " (+ device-idx 2) ")"))
+                                devices))))
+
+  (dotimes [_ (-> ctx :instrs count dec)]
     (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
   (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs ctx))))
 
@@ -230,40 +233,48 @@ e 4e e 4e e 4e e 4e")
   ([base deg oct]
       (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12))))
 
-(defn set-patr [{:keys [patr-f bar-cnt]} idx]
-  (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
-  (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
-  (let [patr (patr-f)]
-    (set-bars 1 deg-to-pitch (take bar-cnt (:bd patr)))
-    (set-bars 2 deg-to-pitch (take bar-cnt (:sd patr)))
-    (set-bars 3 deg-to-pitch (take bar-cnt (:hh-c patr)))
-    (set-bars 5 deg-to-pitch (take bar-cnt (:hc patr)))
-    (set-bars 6 deg-to-pitch (take bar-cnt (:bass patr)))
-    (set-bars 7 deg-to-pitch (take bar-cnt (:hov patr)))
-    (set-bars 8 deg-to-pitch (take bar-cnt (:pad patr)))))
+(defn set-patr [ctx idx]
+  (let [{:keys [patr-f bar-cnt]} (-> ctx :patrs (get idx))
+        m (patr-f)]
+    (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
+    (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
+    (dotimes [n (-> ctx :tracks count)]
+      (set-bars (inc n) deg-to-pitch (take bar-cnt (-> ctx :tracks (get n) :id m))))))
 
-(defn loop-patr [idx]
-  (set-patr (*patr-specs* idx) idx)
+(defn loop-patr [ctx idx]
+  (set-patr ctx idx)
   (ev "clj4rnx.song.selected_sequence_index = " (inc idx))
   (ev "clj4rnx.song.transport.loop_pattern = true")
   (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
 
-(defn- set-patrs [specs]
-  (map-indexed #(set-patr %2 %1) specs))
+(defn- set-patrs [ctx]
+  (dotimes [n (-> ctx :patrs count)] (set-patr ctx n)))
 
 (defn demo []
-  (reset-song {:bpm 140 :patr-cnt (count *patr-specs*) :track-cnt 7
-               :instrs [{:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
-                        {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}
-                        {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}
-                        {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Open HH/VEC1 Cymbals  OH 001.wav"}
-                        {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}
-                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}
-                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
-                        {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}]
-               :tracks [{:devices ["Audio/Effects/    Native/Delay"]}
-                        ]})
-  (set-patrs *patr-specs*)
+  (def song*
+       {:bpm 140 :patr-cnt (count *patr-specs*)
+        :instrs [{:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
+                 {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}
+                 {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}
+                 {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Open HH/VEC1 Cymbals  OH 001.wav"}
+                 {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}
+                 {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}
+                 {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
+                 {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}]
+        :tracks [{:id :bd :devices ["Audio/Effects/    Native/Delay"]
+                  :automation [{:id :bd-vol :device-index 0 :param-index 1}
+                               {:id :bd-pan :device-index 0 :param-index 0}]}
+                 {:id :sd}
+                 {:id :hh-c}
+                 {:id :hc}
+                 {:id :bass}
+                 {:id :hov}
+                 {:id :pad}
+                 ]
+        :patrs *patr-specs*
+        })
+  (reset-song song*)
+  (set-patrs song*)
   )
 
 ; (demo)
