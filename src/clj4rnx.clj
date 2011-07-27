@@ -1,14 +1,13 @@
 (ns clj4rnx
   "
   TODO:
-  shape velocity
   accidentals
+  triplets
+  dotted
+  shape velocity
   velocity/volumne
   articulation
   feel
-  triplets
-  dotted
-  automation
 "
   (:require
    [clojure.string :as str]
@@ -200,7 +199,7 @@
 
 (add-patr-f :grv-1-full (fn []
                           {:bd (parse "1 1 1 1")
-                           :bd-vol (parse "1/4h 1hwww ")
+                           :bd-vol (parse "1/4 1/2 3/4 1")
                            :sd (parse "q 1 q 1")
                            :hh-c (parse "e 1e e 1e e 1e e 1e")
                            :hc (parse "1 1 1 1e 1e 1 1 1 1e s 1s")
@@ -217,10 +216,11 @@ e 4e e 4e e 4e e 4e")
 ; (loop-patr 0)
 
 (def patrs*
-     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd])) :bar-cnt 1}
-      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
-      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
-      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4} ])
+     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol])) :bar-cnt 4}
+;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
+;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
+;      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
+      ])
 
 (defn- deg-to-pitch
   ([deg oct]
@@ -235,31 +235,19 @@ e 4e e 4e e 4e e 4e")
                 (map #(assoc %1 :t (+ idx (:t %1))) bar))
               (iterate inc 0)  bars)))
 
-; renoise.song().tracks[].devices[].parameters[]
-; renoise.song().patterns[].tracks[]:create_automation(parameter)
-; renoise.song().patterns[].tracks[]:delete_automation(parameter)
-; renoise.song().patterns[].tracks[].automation[].playmode
-; renoise.song().patterns[1].tracks[1].automation[1].playmode = renoise.PatternTrackAutomation.PLAYMODE_POINTS
-; renoise.song().patterns[1].tracks[1].automation[1].playmode = renoise.PatternTrackAutomation.PLAYMODE_LINEAR
-; renoise.song().patterns[1].tracks[1].automation[1].playmode = renoise.PatternTrackAutomation.PLAYMODE_CUBIC
-; renoise.song().patterns[].tracks[].automation[].points
-; rprint(renoise.song().patterns[1].tracks[1].automation[1].points)
-; renoise.song().patterns[1].tracks[1].automation[1].points = {{time=1, value=0.5},{time=5.5, value=1},{time=8, value=0}}
-; renoise.song().patterns[1].tracks[1].automation[1].points = {{time = 1, value = 1}, {time = 5, value = 0}}
-
-(defn set-auto-bars [auto index bars]
-  (log/debug (str "set-auto-bars:" auto (first bars)))
-  (ev "clj4rnx.device = clj4rnx.track:device(" (inc (:device-index auto)) ")")
+(defn set-auto-bars [{:keys [device-index param-index playmode] :as auto :or {playmode "PLAYMODE_LINEAR"}} bars]
+  (ev "clj4rnx.device = clj4rnx.track:device(" (inc device-index) ")")
   (ev "clj4rnx.parameter = clj4rnx.device:parameter(" (inc (:param-index auto)) ")")
   (ev "clj4rnx.automation = clj4rnx.pattern_track:create_automation(clj4rnx.parameter)")
+  (ev "clj4rnx.automation.playmode = renoise.PatternTrackAutomation." playmode)
   (ev "clj4rnx.automation.points = {"
-      (log/spy (->> bars
-                    (mapcat (fn [idx bar] (map #(assoc %1 :t (-> %1 :t (+ idx) (* 4 *lpb*) int)) bar)) (iterate inc 0))
-                    (map #(str "{time=" (:t %) ", value=" (double (:deg %)) \}))
-                    (interpose \,)
-                    (apply str))) \}))
+      (->> bars
+           (mapcat (fn [idx bar] (map #(assoc %1 :t (-> %1 :t (+ idx) (* 4 *lpb*) int)) bar)) (iterate inc 0))
+           (map #(str "{time=" (->  % :t inc) ", value=" (double (:deg %)) \}))
+           (interpose \,)
+           (apply str)) \}))
 
-; (demo)
+; (demo) 
 
 (defn set-patr [song idx]
   (let [{:keys [patr-f bar-cnt]} (-> song :patrs (get idx))
@@ -270,7 +258,7 @@ e 4e e 4e e 4e e 4e")
      (map-indexed
       (fn [index track]
         (set-note-bars (inc index) deg-to-pitch (take bar-cnt (-> track :id m)))
-        (dorun (map-indexed #(set-auto-bars %2 %1 (take bar-cnt (-> %2 :id m))) (:automation track))))
+        (doseq [auto (:automation track)] (set-auto-bars auto (take bar-cnt (-> auto :id m)))))
       (:tracks song)))))
 
 (defn loop-patr [song idx]
