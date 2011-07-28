@@ -2,8 +2,6 @@
   "
   TODO:
   accidentals
-  triplets
-  dotted
   shape velocity
   velocity/volumne
   articulation
@@ -18,7 +16,7 @@
 
 (osc/osc-debug true)
 
-(def *lpb* 4)
+(def *lpb* 32)
 (defonce *client* (osc/osc-client "127.0.0.1" 8000))
 
 (defn set-log-level!
@@ -78,6 +76,7 @@
 (defn reset-song [song]
   (ev "clj4rnx.song = renoise.song()")
   (ev "clj4rnx.song.transport.bpm = " (:bpm song))
+  (ev "clj4rnx.song.transport.lpb = " *lpb*)
   (ev "clj4rnx.sequencer = clj4rnx.song.sequencer")
   (doseq [_ (range 25)]
     (ev "clj4rnx.sequencer:delete_sequence_at(" 1 ")")
@@ -88,7 +87,7 @@
     (when-not (= idx 1)
       (ev "clj4rnx.sequencer:insert_sequence_at(" idx ", " idx ")"))
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" idx ")")
-    (ev "clj4rnx.pattern.number_of_lines = " (* 4 *lpb*))
+;    (ev "clj4rnx.pattern.number_of_lines = " (* 4 *lpb*))
     (ev "clj4rnx.pattern:clear()"))
 
   (doseq [_ (range (-> song :tracks count))]
@@ -137,21 +136,28 @@
     (ev "if clj4rnx.track.visible_note_columns < " vis-note-cols
         " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")))
 
-(def e-re* #"([\d/\.]*)([+-]*)([whqes]*)")
+(def e-re* #"([\d/\.]*)([+-]*)([whqes\.\d]*)")
 ; (map #(re-find e-re* %) ["1/4 1 e" "0.5" "1" "2+" "7--" "e"])
 
 (defn- parse-e [s]
   (when-not (str/blank? s)
     (if-let [[n deg oct d] (re-find e-re* s)]
-      (let [                            ; _ (println n)
-            oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
+      (let [oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
             deg (if-not (= deg "") (read-string deg))
-            d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/12}
-            d (if (= d "") 1/4 (reduce #(+ %1 (d-map %2)) 0 d))]
+            d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/16}
+            d (if (= d "") 1/4 (first (reduce (fn [[d last] ch]
+                                                (if-let [n (d-map ch)]
+                                                  [(+ d n) n]
+                                                  (condp = ch
+                                                      \. [(+ d (/ last 2)) (+ last (/ last 2))]
+                                                      \3 [(+ (- d last) (* 2/3 last)) (* 2/3 last)]))) [0 0] d)))]
         (conj {:d d}
               (if deg [:deg deg])
               (if-not (zero? oct) [:oct oct])))
       (throw (IllegalArgumentException. (str "parse-e: unable to parse " s))))))
+
+; (parse-e "1wq.")
+; (parse-e "1q3")
 
 (defn- to-e [x]
   (cond
@@ -198,7 +204,7 @@
 (defn get-patr-f [name] (@patr-fs* name))
 
 (add-patr-f :grv-1-full (fn []
-                          {:bd (parse "1 1 1 1")
+                          {:bd (parse "1 1 1 1e3 e3 1e3")
                            :bd-vol (parse "1/4 1/2 3/4 1")
                            :sd (parse "q 1 q 1")
                            :hh-c (parse "e 1e e 1e e 1e e 1e")
@@ -216,7 +222,7 @@ e 4e e 4e e 4e e 4e")
 ; (loop-patr 0)
 
 (def patrs*
-     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol])) :bar-cnt 4}
+     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol])) :bar-cnt 2}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
 ;      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
@@ -281,8 +287,8 @@ e 4e e 4e e 4e e 4e")
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}]
-        :tracks [{:id :bd :devices ["Audio/Effects/    Native/Delay"]
-                  :automation [{:id :bd-vol :device-index 0 :param-index 1}
+        :tracks [{:id :bd :devices- ["Audio/Effects/    Native/Delay"]
+                  :automation- [{:id :bd-vol :device-index 0 :param-index 1}
 ;                                {:id :bd-pan :device-index 0 :param-index 0}
                                ]}
                  {:id :sd}
