@@ -1,10 +1,10 @@
 (ns clj4rnx
   "
   TODO:
+  articulation 1ea0.75v1 1e:a0.75:v1 1e 1e.75{
   accidentals
-  shape velocity
   velocity/volumne
-  articulation
+  shape velocity
   feel
 "
   (:require
@@ -16,7 +16,7 @@
 
 (osc/osc-debug true)
 
-(def *lpb* 32)
+(def *lpb* 16)
 (defonce *client* (osc/osc-client "127.0.0.1" 8000))
 
 (defn set-log-level!
@@ -136,28 +136,55 @@
     (ev "if clj4rnx.track.visible_note_columns < " vis-note-cols
         " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")))
 
-(def e-re* #"([\d/\.]*)([+-]*)([whqes\.\d]*)")
-; (map #(re-find e-re* %) ["1/4 1 e" "0.5" "1" "2+" "7--" "e"])
+;(def e-re* #"([\d/\.]+)?([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?")
+(def e-re* #"([\d/\.]+)?([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?")
+; (re-find e-re* "1bbet {:b :abacab}")
+; (map #(re-find e-re* %) ["1bbet {:b :abacab}" "1#0.5{:a 2}" "1b""1/4" "0.5" "1" "2+" "7--" "e"])
 
 (defn- parse-e [s]
-  (when-not (str/blank? s)
-    (if-let [[n deg oct d] (re-find e-re* s)]
-      (let [oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
-            deg (if-not (= deg "") (read-string deg))
+  (when-not (str/blank? (log/spy s))
+    (if-let [[_ deg acc oct d v m] (re-find e-re* s)]
+      (let [acc (reduce #(+ %1 ({\# 1 \b -1} %2)) 0 acc)
+            oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
             d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/16}
-            d (if (= d "") 1/4 (first (reduce (fn [[d last] ch]
-                                                (if-let [n (d-map ch)]
-                                                  [(+ d n) n]
-                                                  (condp = ch
-                                                      \. [(+ d (/ last 2)) (+ last (/ last 2))]
-                                                      \3 [(+ (- d last) (* 2/3 last)) (* 2/3 last)]))) [0 0] d)))]
-        (conj {:d d}
-              (if deg [:deg deg])
-              (if-not (zero? oct) [:oct oct])))
+            d (if-not d 1/4 (first (reduce (fn [[d last] ch]
+                                             (if-let [n (d-map ch)]
+                                               [(+ d n) n]
+                                               (condp = ch
+                                                   \. [(+ d (/ last 2)) (+ last (/ last 2))]
+                                                   \t [(+ (- d last) (* 2/3 last)) (* 2/3 last)]))) [0 0] d)))]
+        (merge
+         (conj {:d d}
+               (when deg [:deg (read-string deg)])
+               (when-not (zero? acc) [:acc acc])
+               (when-not (zero? oct) [:oct oct])
+               (when v [:v (read-string (str \0 v))]))
+         (if m (read-string m))))
       (throw (IllegalArgumentException. (str "parse-e: unable to parse " s))))))
 
-; (parse-e "1wq.")
-; (parse-e "1q3")
+(comment (defn- parse-e [s]
+           (when-not (str/blank? (log/spy s))
+             (if-let [[_ deg acc oct d v m] (re-find e-re* s)]
+               (let [acc (reduce #(+ %1 ({\# 1 \b -1} %2)) 0 acc)
+                     oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
+                     d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/16}
+                     d (if-not d 1/4 (first (reduce (fn [[d last] ch]
+                                                      (if-let [n (d-map ch)]
+                                                        [(+ d n) n]
+                                                        (condp = ch
+                                                            \. [(+ d (/ last 2)) (+ last (/ last 2))]
+                                                            \t [(+ (- d last) (* 2/3 last)) (* 2/3 last)]))) [0 0] d)))]
+                 (merge
+                  (conj {:d d}
+                        (when deg [:deg (read-string deg)])
+                        (when-not (zero? acc) [:acc acc])
+                        (when-not (zero? oct) [:oct oct])
+                        (when v [:v (read-string (str \0 v))]))
+                  (if m (read-string m))))
+               (throw (IllegalArgumentException. (str "parse-e: unable to parse " s)))))))
+
+; (parse-e "1bbe0.5 {:b :abacab}")
+; (parse-e "1q")
 
 (defn- to-e [x]
   (cond
@@ -184,7 +211,7 @@
                   bars (into bars (repeat (- (inc idx) (count bars)) []))]
               (assoc bars idx (conj (bars idx) (assoc e :t (- (e :t) idx)))))) [] es))
 
-(defn- normalize [s] (str \[ (str/replace s  e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") "")) \]))
+(defn- normalize [s] (str \[ (str/replace s e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") "")) \]))
 
 (defn- parse [s] (->> s normalize read-string to-e to-es :es es-to-bars repeat (mapcat identity)))
 
@@ -204,7 +231,7 @@
 (defn get-patr-f [name] (@patr-fs* name))
 
 (add-patr-f :grv-1-full (fn []
-                          {:bd (parse "1 1 1 1e3 e3 1e3")
+                          {:bd (parse "1 1 1 1")
                            :bd-vol (parse "1/4 1/2 3/4 1")
                            :sd (parse "q 1 q 1")
                            :hh-c (parse "e 1e e 1e e 1e e 1e")
@@ -219,6 +246,7 @@ e 4e e 4e e 4e e 4e")
 #{1w [6h 5h]}
 #{1w [4h 5h]}")}))
 
+; (demo)
 ; (loop-patr 0)
 
 (def patrs*
