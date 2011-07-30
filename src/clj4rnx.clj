@@ -16,7 +16,7 @@
 
 (osc/osc-debug true)
 
-(def *lpb* 16)
+(def *lpb* 4)
 (defonce *client* (osc/osc-client "127.0.0.1" 8000))
 
 (defn set-log-level!
@@ -136,15 +136,21 @@
     (ev "if clj4rnx.track.visible_note_columns < " vis-note-cols
         " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")))
 
-;(def e-re* #"([\d/\.]+)?([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?")
-(def e-re* #"([\d/\.]+)?([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?")
+;(def e-re* #"([\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?")
+(def e-re* #"(([whqest\.]+)|([\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?)")
+; (re-find e-re* "1#+hq")
 ; (re-find e-re* "1bbet {:b :abacab}")
+; (re-find e-re* "#{1q 5q}")
 ; (map #(re-find e-re* %) ["1bbet {:b :abacab}" "1#0.5{:a 2}" "1b""1/4" "0.5" "1" "2+" "7--" "e"])
+
+; (->> "#{1q 5q}" normalize)
+
 
 (defn- parse-e [s]
   (when-not (str/blank? (log/spy s))
-    (if-let [[_ deg acc oct d v m] (re-find e-re* s)]
-      (let [acc (reduce #(+ %1 ({\# 1 \b -1} %2)) 0 acc)
+    (if-let [[_ _ r deg acc oct d v m] (re-find e-re* s)]
+      (let [d (or r d)
+            acc (reduce #(+ %1 ({\# 1 \b -1} %2)) 0 acc)
             oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
             d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/16}
             d (if-not d 1/4 (first (reduce (fn [[d last] ch]
@@ -213,7 +219,7 @@
 
 (defn- normalize [s] (str \[ (str/replace s e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") "")) \]))
 
-(defn- parse [s] (->> s normalize read-string to-e to-es :es es-to-bars repeat (mapcat identity)))
+(defn- parse [s] (->> (log/spy s) normalize read-string to-e to-es :es es-to-bars repeat (mapcat identity)))
 
 ; (->> "#{1w 5w [1+h 2+h]}" normalize read-string to-e to-es :es)
 ; (->> "[1 1 1 1]" normalize read-string to-e to-es :es)
@@ -221,6 +227,8 @@
 ; (take 1  (parse "#{[1+h 2+h]}"))
 ; (take 2 (parse "#{1w [1+h 2+h]}"))
 ; (take 2 (parse "1 1 1 1"))
+; (take 1 (parse "#{1q 5q}"))
+; (demo)
 
 (def bar-fs* (ref {}))
 (defn add-bar-f [name f] (dosync (alter bar-fs* assoc name f)) nil)
@@ -231,7 +239,7 @@
 (defn get-patr-f [name] (@patr-fs* name))
 
 (add-patr-f :grv-1-full (fn []
-                          {:bd (parse "1 1 1 1")
+                          {:bd (parse "1e. 1s 1 1")
                            :bd-vol (parse "1/4 1/2 3/4 1")
                            :sd (parse "q 1 q 1")
                            :hh-c (parse "e 1e e 1e e 1e e 1e")
