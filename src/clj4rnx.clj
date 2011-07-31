@@ -13,9 +13,9 @@
    [clojure.contrib.logging :as log]
    [osc :as osc]))
 
-(osc/osc-debug true)
-
 (def *lpb* 4)
+
+(osc/osc-debug true)
 (defonce *client* (osc/osc-client "127.0.0.1" 8000))
 
 (defn set-log-level!
@@ -29,8 +29,7 @@
 
 (set-log-level! java.util.logging.Level/FINEST)
 
-(defn ev [& args]
-  (osc/osc-send *client* "/renoise/evaluate" (apply str args)))
+(defn ev [& args] (osc/osc-send *client* "/renoise/evaluate" (apply str args)))
 
 ; rprint(renoise.song():instrument(1).plugin_properties.available_plugins)
 ; (ev "print(renoise.song():instrument(1).plugin_properties.plugin_name)")
@@ -86,7 +85,6 @@
     (when-not (= idx 1)
       (ev "clj4rnx.sequencer:insert_sequence_at(" idx ", " idx ")"))
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" idx ")")
-;    (ev "clj4rnx.pattern.number_of_lines = " (* 4 *lpb*))
     (ev "clj4rnx.pattern:clear()"))
 
   (doseq [_ (range (-> song :tracks count))]
@@ -104,10 +102,7 @@
     (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
   (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs song))))
 
-; (demo)
-
 (defn- note-col [t off-t off-vec]
-;  (println "note-col:" t off-t off-vec)
   (let [index (or  (->> off-vec
                         (map-indexed vector)
                         (filter (fn [[index off-t]] (when (>= t off-t) index)))
@@ -135,15 +130,9 @@
     (ev "if clj4rnx.track.visible_note_columns < " vis-note-cols
         " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")))
 
-;(def e-re* #"([\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?")
 (def e-re* #"(([whqest\.]+)|([\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?)")
 ; (re-find e-re* "1#+hq")
-; (re-find e-re* "1bbet {:b :abacab}")
-; (re-find e-re* "#{1q 5q}")
 ; (map #(re-find e-re* %) ["1bbet {:b :abacab}" "1#0.5{:a 2}" "1b""1/4" "0.5" "1" "2+" "7--" "e"])
-
-; (->> "#{1q 5q}" normalize)
-
 
 (defn- parse-e [s]
   (when-not (str/blank? (log/spy s))
@@ -166,30 +155,6 @@
                (when v [:v (read-string (str \0 v))]))
          (if m (read-string m))))
       (throw (IllegalArgumentException. (str "parse-e: unable to parse " s))))))
-
-(comment (defn- parse-e [s]
-           (when-not (str/blank? (log/spy s))
-             (if-let [[_ deg acc oct d v m] (re-find e-re* s)]
-               (let [acc (reduce #(+ %1 ({\# 1 \b -1} %2)) 0 acc)
-                     oct (reduce #(+ %1 (if (= %2 \+) 1 -1)) 0 oct)
-                     d-map {\w 1 \h 1/2 \q 1/4 \e 1/8 \s 1/16}
-                     d (if-not d 1/4 (first (reduce (fn [[d last] ch]
-                                                      (if-let [n (d-map ch)]
-                                                        [(+ d n) n]
-                                                        (condp = ch
-                                                            \. [(+ d (/ last 2)) (+ last (/ last 2))]
-                                                            \t [(+ (- d last) (* 2/3 last)) (* 2/3 last)]))) [0 0] d)))]
-                 (merge
-                  (conj {:d d}
-                        (when deg [:deg (read-string deg)])
-                        (when-not (zero? acc) [:acc acc])
-                        (when-not (zero? oct) [:oct oct])
-                        (when v [:v (read-string (str \0 v))]))
-                  (if m (read-string m))))
-               (throw (IllegalArgumentException. (str "parse-e: unable to parse " s)))))))
-
-; (parse-e "1bbe0.5 {:b :abacab}")
-; (parse-e "1q")
 
 (defn- to-e [x]
   (cond
@@ -224,10 +189,6 @@
 ; (->> "[1 1 1 1]" normalize read-string to-e to-es :es)
 ; (->> "#{1w [5 6 7 8]}" normalize read-string to-e to-es :es)
 ; (take 1  (parse "#{[1+h 2+h]}"))
-; (take 2 (parse "#{1w [1+h 2+h]}"))
-; (take 2 (parse "1 1 1 1"))
-; (take 1 (parse "#{1q 5q}"))
-; (->> "1+0.25 1+0.85 1+ 1+" normalize read-string to-e)
 ; (demo)
 
 (def bar-fs* (ref {}))
@@ -254,9 +215,6 @@ e 4e e 4e e 4e e 4e")
 #{1w [5h 6h]}
 #{1w [6h 5h]}
 #{1w [4h 5h]}")}))
-
-; (demo)
-; (loop-patr 0)
 
 (def patrs*
      [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol])) :bar-cnt 2}
@@ -339,8 +297,7 @@ e 4e e 4e e 4e e 4e")
         :patrs patrs*
         })
   (reset-song song*)
-  (set-patrs song*)
-  )
+  (set-patrs song*))
 
 ; (demo)
 
