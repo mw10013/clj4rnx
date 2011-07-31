@@ -1,10 +1,9 @@
 (ns clj4rnx
   "
   TODO:
-  articulation 1ea0.75v1 1e:a0.75:v1 1e 1e.75{
-  accidentals
-  velocity/volumne
+  defaults for set-notes
   shape velocity
+  lpb per patrn
   feel
 "
   (:require
@@ -120,15 +119,15 @@
   (ev "clj4rnx.track = clj4rnx.song:track(" trk-idx ")")
   (ev "clj4rnx.pattern_track = clj4rnx.pattern:track(" trk-idx ")")
   (ev "clj4rnx.pattern_track:clear()")
-  (let [off-vec (reduce (fn [off-vec {:keys [t deg oct v d] :as e :or {oct 0 v 3/4}}] 
+  (let [off-vec (reduce (fn [off-vec {:keys [t deg oct acc v d a] :as e :or {oct 0 v 3/4 acc 0 a 1}}] 
                           (let [l (inc (int (* t 4 *lpb*)))
-                                [note-col off-vec] (note-col t (+ t d) off-vec)
+                                [note-col off-vec] (note-col t (+ t (* d a)) off-vec)
                                 note-col (inc note-col)]
                             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" l "):note_column(" note-col ")")
-                            (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct))
+                            (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct acc))
                             (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
                             (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
-                            (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (int (+  l (* d 4 *lpb*))) "):note_column(" note-col ")")
+                            (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (int (+  l (* d 4 *lpb* a))) "):note_column(" note-col ")")
                             (ev "clj4rnx.note_column.note_string = 'OFF'" )
                             off-vec))
                         [] notes)
@@ -137,7 +136,7 @@
         " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")))
 
 ;(def e-re* #"([\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?")
-(def e-re* #"(([whqest\.]+)|([\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?)")
+(def e-re* #"(([whqest\.]+)|([\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?)")
 ; (re-find e-re* "1#+hq")
 ; (re-find e-re* "1bbet {:b :abacab}")
 ; (re-find e-re* "#{1q 5q}")
@@ -228,6 +227,7 @@
 ; (take 2 (parse "#{1w [1+h 2+h]}"))
 ; (take 2 (parse "1 1 1 1"))
 ; (take 1 (parse "#{1q 5q}"))
+; (->> "1+0.25 1+0.85 1+ 1+" normalize read-string to-e)
 ; (demo)
 
 (def bar-fs* (ref {}))
@@ -239,11 +239,12 @@
 (defn get-patr-f [name] (@patr-fs* name))
 
 (add-patr-f :grv-1-full (fn []
-                          {:bd (parse "1e. 1s 1 1")
+                          {:bd (parse "1 1 1 1")
                            :bd-vol (parse "1/4 1/2 3/4 1")
                            :sd (parse "q 1 q 1")
                            :hh-c (parse "e 1e e 1e e 1e e 1e")
                            :hc (parse "1 1 1 1e 1e 1 1 1 1e s 1s")
+                           :bass- (parse "1+h0.45 {:a 1.25}  5+h1")
                            :bass (parse "e 1+e e 1+e e 1+e e 1+e
 e 5e e 5e e 5e e 5e
 e 6e e 6e e 6e e 6e
@@ -259,16 +260,16 @@ e 4e e 4e e 4e e 4e")
 
 (def patrs*
      [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol])) :bar-cnt 2}
-;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
-;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
-;      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
+      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
+      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
+      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
       ])
 
 (defn- deg-to-pitch
-  ([deg oct]
-     (deg-to-pitch 48 deg oct))
-  ([base deg oct]
-      (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12))))
+  ([deg oct acc]
+     (deg-to-pitch 48 deg oct acc))
+  ([base deg oct acc]
+      (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
 
 (defn set-note-bars [trk-idx pitch-f bars]
   (set-notes trk-idx pitch-f
@@ -324,14 +325,15 @@ e 4e e 4e e 4e e 4e")
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}]
         :tracks [{:id :bd :devices- ["Audio/Effects/    Native/Delay"]
-                  :automation- [{:id :bd-vol :device-index 0 :param-index 1}
+                  :automation [{:id :bd-vol :device-index 0 :param-index 1}
 ;                                {:id :bd-pan :device-index 0 :param-index 0}
                                ]}
                  {:id :sd}
                  {:id :hh-c}
+                 {:id :hh-o}
                  {:id :hc}
                  {:id :bass}
-                 {:id :hov}
+                 {:id :hov} 
                  {:id :pad}
                  ]
         :patrs patrs*
@@ -343,6 +345,6 @@ e 4e e 4e e 4e e 4e")
 ; (demo)
 
 (defonce *interactive* false)
-(when *interactive* (loop-patr 0))
+(when *interactive* (loop-patr song* 0))
 
 
