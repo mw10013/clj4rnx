@@ -229,12 +229,12 @@ e 4e e 4e e 4e e 4e")
   ([base deg oct acc]
       (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
 
-(defn set-note-bars [trk-idx pitch-f bars]
+(defn set-note-bars [trk-idx pitch-f bar-f bars]
   (set-notes trk-idx pitch-f
-             (mapcat
-              (fn [idx bar]
-                (map #(assoc %1 :t (+ idx (:t %1))) bar))
-              (iterate inc 0)  bars)))
+             (map (or bar-f identity)
+                  (mapcat
+                   (fn [idx bar] (map #(assoc %1 :t (+ idx (:t %1))) bar))
+                   (iterate inc 0)  bars))))
 
 (defn set-auto-bars [{:keys [device-index param-index playmode] :as auto :or {playmode "PLAYMODE_LINEAR"}} bars]
   (ev "clj4rnx.device = clj4rnx.track:device(" (inc device-index) ")")
@@ -258,7 +258,7 @@ e 4e e 4e e 4e e 4e")
     (dorun
      (map-indexed
       (fn [index track]
-        (set-note-bars (inc index) deg-to-pitch (take bar-cnt (-> track :id m)))
+        (set-note-bars (inc index) deg-to-pitch (-> track :bar-f) (take bar-cnt (-> track :id m)))
         (doseq [auto (:automation track)] (set-auto-bars auto (take bar-cnt (-> auto :id m)))))
       (:tracks song)))))
 
@@ -282,7 +282,8 @@ e 4e e 4e e 4e e 4e")
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}]
-        :tracks [{:id :bd :devices- ["Audio/Effects/    Native/Delay"]
+        :tracks [{:id :bd
+                  :devices- ["Audio/Effects/    Native/Delay"]
                   :automation [{:id :bd-vol :device-index 0 :param-index 1}
 ;                                {:id :bd-pan :device-index 0 :param-index 0}
                                ]}
@@ -290,7 +291,7 @@ e 4e e 4e e 4e e 4e")
                  {:id :hh-c}
                  {:id :hh-o}
                  {:id :hc}
-                 {:id :bass}
+                 {:id :bass :bar-f #(update-in % [:oct] (fnil inc 0))}
                  {:id :hov} 
                  {:id :pad}
                  ]
