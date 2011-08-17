@@ -2,6 +2,7 @@
   "
   TODO:
   defaults for set-notes
+  remove pitch-f from set-ntoes
   shape velocity
   lpb per patrn
   feel
@@ -135,7 +136,7 @@
 ; (map #(re-find e-re* %) ["1bbet {:b :abacab}" "1#0.5{:a 2}" "1b""1/4" "0.5" "1" "2+" "7--" "e"])
 
 (defn- parse-e [s]
-  (when-not (str/blank? (log/spy s))
+  (when-not (str/blank? s)
     (if-let [[_ _ r deg acc oct d v m] (re-find e-re* s)]
       (let [d (or r d)
             acc (reduce #(+ %1 ({\# 1 \b -1} %2)) 0 acc)
@@ -183,7 +184,7 @@
 
 (defn- normalize [s] (str \[ (str/replace s e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") "")) \]))
 
-(defn- parse [s] (->> (log/spy s) normalize read-string to-e to-es :es es-to-bars repeat (mapcat identity)))
+(defn- parse [s] (->> s normalize read-string to-e to-es :es es-to-bars repeat (mapcat identity)))
 
 ; (->> "#{1w 5w [1+h 2+h]}" normalize read-string to-e to-es :es)
 ; (->> "[1 1 1 1]" normalize read-string to-e to-es :es)
@@ -229,12 +230,11 @@ e 4e e 4e e 4e e 4e")
   ([base deg oct acc]
       (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
 
-(defn set-note-bars [trk-idx pitch-f bar-f bars]
+(defn set-note-bars [trk-idx pitch-f note-f bars]
   (set-notes trk-idx pitch-f
-             (map (or bar-f identity)
-                  (mapcat
-                   (fn [idx bar] (map #(assoc %1 :t (+ idx (:t %1))) bar))
-                   (iterate inc 0)  bars))))
+             (map (or note-f identity)
+                  (mapcat (fn [idx bar] (map #(update-in % [:t] (partial + idx)) bar))
+                          (iterate inc 0) bars))))
 
 (defn set-auto-bars [{:keys [device-index param-index playmode] :as auto :or {playmode "PLAYMODE_LINEAR"}} bars]
   (ev "clj4rnx.device = clj4rnx.track:device(" (inc device-index) ")")
@@ -258,7 +258,7 @@ e 4e e 4e e 4e e 4e")
     (dorun
      (map-indexed
       (fn [index track]
-        (set-note-bars (inc index) deg-to-pitch (-> track :bar-f) (take bar-cnt (-> track :id m)))
+        (set-note-bars (inc index) deg-to-pitch (-> track :note-f) (take bar-cnt (-> track :id m)))
         (doseq [auto (:automation track)] (set-auto-bars auto (take bar-cnt (-> auto :id m)))))
       (:tracks song)))))
 
@@ -291,7 +291,7 @@ e 4e e 4e e 4e e 4e")
                  {:id :hh-c}
                  {:id :hh-o}
                  {:id :hc}
-                 {:id :bass :bar-f #(update-in % [:oct] (fnil inc 0))}
+                 {:id :bass :note-f #(update-in % [:oct] (fnil (partial + 0) 0))}
                  {:id :hov} 
                  {:id :pad}
                  ]
@@ -305,4 +305,32 @@ e 4e e 4e e 4e e 4e")
 (defonce *interactive* false)
 (when *interactive* (loop-patr song* 0))
 
+(defn- xbs
+  ([] (xbs {:t 0} (take 2 (parse "1h 2h"))))
+  ([ctx bs]
+     (lazy-seq
+      (when (seq bs)
+        (let [{:keys [b]}
+              (reduce (fn [{:keys [ns s b] :as ctx} t]
+                        (log/spy [s t])
+                        (let [ns (reduce (fn [ns n]
+                                           (let [n (update-in n [:d] - 1)]
+                                                (if (<= (:d n) 0) ns (conj ns n))))
+                                         [] ns)
+                              [ss s] (partition-by #(<= (:t %) t) s)
+                              _ (log/spy [ss s t])
+                              ns (into ns ss)
+                              b (into b (map #(assoc % :d 1/4) ns))
+;                              _ (log/spy [ns ss s b])
+                              ]
+                          (assoc ctx :ns ns :s s :b b)))
+                      (assoc ctx :b [] :ns [] :s (first bs)) (map #(/ % 4) (range 4)))]
+          (cons b (xbs ctx (rest bs))))))))
 
+; (xbs)
+
+(comment
+  (def bs* (take 2 (parse "1h 2h")))
+  (xbs)
+
+  )
