@@ -192,6 +192,40 @@
 ; (take 1  (parse "#{[1+h 2+h]}"))
 ; (demo)
 
+(defn- bucket-by-step
+  [step coll]
+  (->> coll (group-by #(* (quot (:t  %) step) step)) (apply concat) (apply hash-map)))
+
+; (bucket-by-step 1/4 (first (take 1 (parse "1h 2h"))))
+
+(defn- xbs
+  ([] (xbs {:t 0 :step 1/4} (take 2 (parse "1h 3q"))))
+  ([{:keys [step] :as ctx} bs]
+     (lazy-seq
+      (when (seq bs)
+        (let [{:keys [b]}
+              (reduce (fn [{:keys [ns s b] :as ctx} t]
+;                        (log/spy [s t])
+                        (let [ns (reduce (fn [ns n]
+                                           (let [n (update-in n [:d] - step)]
+                                                (if (<= (:d n) 0) ns (conj ns n))))
+                                         [] ns)
+                              ns (into ns (s t))
+                              b (into b (map #(assoc % :t t :d step) ns))
+ ;                            _ (log/spy [ns b])
+                              ]
+                          (assoc ctx :ns ns :s s :b b)))
+                      (assoc ctx :b [] :ns [] :s (bucket-by-step step (first bs)))
+                      (take-while (partial > 1) (iterate (partial + step) 0)))]
+          (cons b (xbs ctx (rest bs))))))))
+
+; (xbs)
+
+(comment
+  (def bs* (take 1 (parse "1h 2h")))
+  (xbs)
+  )
+
 (def bar-fs* (ref {}))
 (defn add-bar-f [name f] (dosync (alter bar-fs* assoc name f)) nil)
 (defn get-bars [name] ((@bar-fs* name)))
@@ -211,14 +245,15 @@
 e 5e e 5e e 5e e 5e
 e 6e e 6e e 6e e 6e
 e 4e e 4e e 4e e 4e")
-                           :hov (parse "#{1q 5q}")
+;                           :hov (parse "#{1q 5q}")
+                           :hov (xbs {:step 1/8} (parse "1q 3q 5q"))
                            :pad (parse "#{1w [1+h 2+h]}
 #{1w [5h 6h]}
 #{1w [6h 5h]}
 #{1w [4h 5h]}")}))
 
 (def patrs*
-     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol])) :bar-cnt 2}
+     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol :hov])) :bar-cnt 2}
       {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
       {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
       {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
@@ -305,32 +340,3 @@ e 4e e 4e e 4e e 4e")
 (defonce *interactive* false)
 (when *interactive* (loop-patr song* 0))
 
-(defn- xbs
-  ([] (xbs {:t 0} (take 2 (parse "1h 2h"))))
-  ([ctx bs]
-     (lazy-seq
-      (when (seq bs)
-        (let [{:keys [b]}
-              (reduce (fn [{:keys [ns s b] :as ctx} t]
-                        (log/spy [s t])
-                        (let [ns (reduce (fn [ns n]
-                                           (let [n (update-in n [:d] - 1)]
-                                                (if (<= (:d n) 0) ns (conj ns n))))
-                                         [] ns)
-                              [ss s] (partition-by #(<= (:t %) t) s)
-                              _ (log/spy [ss s t])
-                              ns (into ns ss)
-                              b (into b (map #(assoc % :d 1/4) ns))
-;                              _ (log/spy [ns ss s b])
-                              ]
-                          (assoc ctx :ns ns :s s :b b)))
-                      (assoc ctx :b [] :ns [] :s (first bs)) (map #(/ % 4) (range 4)))]
-          (cons b (xbs ctx (rest bs))))))))
-
-; (xbs)
-
-(comment
-  (def bs* (take 2 (parse "1h 2h")))
-  (xbs)
-
-  )
