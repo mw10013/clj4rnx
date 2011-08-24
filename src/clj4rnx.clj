@@ -132,6 +132,9 @@
         " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")))
 
 (def e-re* #"(([whqest\.]+)|([\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?)")
+; (normalize "('(1 3))")
+; (re-find e-re* "list")
+; (re-find e-re* "s")
 ; (re-find e-re* "1#+hq")
 ; (map #(re-find e-re* %) ["1bbet {:b :abacab}" "1#0.5{:a 2}" "1b""1/4" "0.5" "1" "2+" "7--" "e"])
 
@@ -161,20 +164,24 @@
   (cond
    (string? x) (parse-e x)
    (vector? x) (->> x (map to-e) vec)
-   (set? x) (->> x (map to-e) set)
+   (seq? x) (map to-e x)
    :else (throw (IllegalArgumentException. (str "to-e: unexpected arg: " x)))))
 
 (defn- to-es
   ([x] (to-es {:t 0 :es []} x))
   ([ctx x]
+     (log/debug (str "x: " x))
      (cond
       (map? x) (conj ctx [:t (+ (:t ctx) (:d x))] (when (:deg x) [:es (conj (:es ctx) (assoc x :t (:t ctx)))]))
       (vector? x) (reduce (fn [ctx x] (to-es ctx x)) ctx x)
-      (set? x) (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
-                                       (let [new-ctx (to-es (assoc new-ctx :t (:t ctx)) val)]
-                                         (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
-                                     (assoc ctx :es [] :max-t (:t ctx)) x)]
+      (seq? x) (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
+                                                      (let [new-ctx (to-es (assoc new-ctx :t (:t ctx)) (log/spy val))]
+                                              (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
+                                          (assoc ctx :es [] :max-t (:t ctx)) x)]
                  (assoc new-ctx :t (:max-t new-ctx) :es (concat (:es ctx) (sort #(compare (:t %1) (:t %2)) (:es new-ctx))))))))
+
+; (def x* (->> "'(1 3)" normalize read-string eval to-e))
+; (->> "'(1 3)" normalize read-string eval to-e to-es)
 
 (defn- es-to-bars [es]
   (reduce (fn [bars {t :t :as e}]
@@ -182,14 +189,18 @@
                   bars (into bars (repeat (- (inc idx) (count bars)) []))]
               (assoc bars idx (conj (bars idx) (assoc e :t (- (e :t) idx)))))) [] es))
 
-(defn- normalize [s] (str \[ (str/replace s e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") "")) \]))
+(defn- normalize- [s] (str \[ (str/replace s e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") "")) \]))
+(defn- normalize [s] (-> s (str/replace e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") ""))
+                         (str/replace "'(" "(list ")
+                         ((partial str \[) \])))
 
-(defn- parse [s] (->> s normalize read-string to-e to-es :es es-to-bars repeat (mapcat identity)))
+(defn- parse [s] (->> s normalize read-string eval to-e to-es :es es-to-bars repeat (mapcat identity)))
 
-; (->> "#{1w 5w [1+h 2+h]}" normalize read-string to-e to-es :es)
-; (->> "[1 1 1 1]" normalize read-string to-e to-es :es)
-; (->> "#{1w [5 6 7 8]}" normalize read-string to-e to-es :es)
-; (take 1  (parse "#{[1+h 2+h]}"))
+; (take 1  (parse "'([1+h 2+h])"))
+; (take 1  (parse "#{[1+h 2+h] 1w}"))
+; (take 1  (parse "[1 3 5]"))
+; (take 1  (parse "'(1 3 5)"))
+; (take 1  (parse "'(3 5 1)"))
 ; (demo)
 
 (defn- bucket-by-step
@@ -199,22 +210,23 @@
 ; (bucket-by-step 1/4 (first (take 1 (parse "1h 2h"))))
 
 (defn- xbs
-  ([] (xbs {:t 0 :step 1/4} (take 2 (parse "1h 3q"))))
+  ([] (xbs {:t 0 :step 1/4} (take 2 (parse "'(1w 3w 5w)"))))
   ([{:keys [step] :as ctx} bs]
      (lazy-seq
       (when (seq bs)
-        (let [{:keys [b]}
-              (reduce (fn [{:keys [ns s b] :as ctx} t]
-;                        (log/spy [s t])
+        (let [{:keys [b] :as ctx}
+              (reduce (fn [{:keys [ns s b index] :as ctx} t]
+                        (log/spy [t index])
                         (let [ns (reduce (fn [ns n]
                                            (let [n (update-in n [:d] - step)]
                                                 (if (<= (:d n) 0) ns (conj ns n))))
                                          [] ns)
                               ns (into ns (s t))
-                              b (into b (map #(assoc % :t t :d step) ns))
+                              index (log/spy (when (not-empty ns) (mod ((fnil inc -1) index) (count ns))))
+;                              b (into b (map #(assoc % :t t :d step) ns))
  ;                            _ (log/spy [ns b])
                               ]
-                          (assoc ctx :ns ns :s s :b b)))
+                          (conj (assoc ctx :ns ns :index index) (when index [:b (conj (:b ctx) (assoc (ns index) :t t :d step))]))))
                       (assoc ctx :b [] :ns [] :s (bucket-by-step step (first bs)))
                       (take-while (partial > 1) (iterate (partial + step) 0)))]
           (cons b (xbs ctx (rest bs))))))))
@@ -245,15 +257,16 @@
 e 5e e 5e e 5e e 5e
 e 6e e 6e e 6e e 6e
 e 4e e 4e e 4e e 4e")
-;                           :hov (parse "#{1q 5q}")
+;                           :hov (parse "'(1q 5q)")
                            :hov (xbs {:step 1/8} (parse "1q 3q 5q"))
-                           :pad (parse "#{1w [1+h 2+h]}
-#{1w [5h 6h]}
-#{1w [6h 5h]}
-#{1w [4h 5h]}")}))
+                           :pad (parse "'(1w [1+h 2+h])
+'(1w [5h 6h])
+'(1w [6h 5h])
+'(1w [4h 5h])")
+                           :bell (xbs {:step 1/16 } (parse "'(1w 3w 5w)"))}))
 
 (def patrs*
-     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol :hov])) :bar-cnt 2}
+     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol :bell])) :bar-cnt 4}
       {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
       {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
       {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
@@ -328,7 +341,8 @@ e 4e e 4e e 4e e 4e")
                  {:id :hc}
                  {:id :bass :note-f #(update-in % [:oct] (fnil (partial + 0) 0))}
                  {:id :hov} 
-                 {:id :pad}
+;                 {:id :pad}
+                 {:id :bell}
                  ]
         :patrs patrs*
         })
