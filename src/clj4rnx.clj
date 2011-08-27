@@ -134,7 +134,7 @@
 (def e-re* #"(([whqest\.]+)|([\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?)")
 ; (normalize "('(1 3))")
 ; (re-find e-re* "list")
-; (re-find e-re* "s")
+; (re-find e-re* "ww")
 ; (re-find e-re* "1#+hq")
 ; (map #(re-find e-re* %) ["1bbet {:b :abacab}" "1#0.5{:a 2}" "1b""1/4" "0.5" "1" "2+" "7--" "e"])
 
@@ -170,12 +170,13 @@
 (defn- to-es
   ([x] (to-es {:t 0 :es []} x))
   ([ctx x]
-     (log/debug (str "x: " x))
+;     (log/debug (str "x: " x))
      (cond
       (map? x) (conj ctx [:t (+ (:t ctx) (:d x))] (when (:deg x) [:es (conj (:es ctx) (assoc x :t (:t ctx)))]))
+;      (map? x) (conj ctx [:t (+ (:t ctx) (:d x))] [:es (conj (:es ctx) (assoc x :t (:t ctx)))])
       (vector? x) (reduce (fn [ctx x] (to-es ctx x)) ctx x)
       (seq? x) (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
-                                                      (let [new-ctx (to-es (assoc new-ctx :t (:t ctx)) (log/spy val))]
+                                       (let [new-ctx (to-es (assoc new-ctx :t (:t ctx)) val)]
                                               (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
                                           (assoc ctx :es [] :max-t (:t ctx)) x)]
                  (assoc new-ctx :t (:max-t new-ctx) :es (concat (:es ctx) (sort #(compare (:t %1) (:t %2)) (:es new-ctx))))))))
@@ -183,50 +184,74 @@
 ; (def x* (->> "'(1 3)" normalize read-string eval to-e))
 ; (->> "'(1 3)" normalize read-string eval to-e to-es)
 
-(defn- es-to-bars [es]
-  (reduce (fn [bars {t :t :as e}]
-            (let [idx (int t)
-                  bars (into bars (repeat (- (inc idx) (count bars)) []))]
-              (assoc bars idx (conj (bars idx) (assoc e :t (- (e :t) idx)))))) [] es))
+(defn- es-to-bars
+  ([es] (es-to-bars nil es))
+  ([bar-cnt es]
+     (let [bars (reduce (fn [bars {t :t :as e}]
+                          (let [idx (int t)
+                                bars (into bars (repeat (- (inc idx) (count bars)) []))]
+                            (assoc bars idx (conj (bars idx) (assoc e :t (- (e :t) idx)))))) [] es)]
+       (if bar-cnt (take bar-cnt (concat bars (repeat []))) bars ))))
+
+; (->> "w w" normalize read-string eval to-e to-es)
+; (->> "w" normalize read-string eval to-e)
+; (->> "w 1" normalize read-string eval to-e)
 
 (defn- normalize- [s] (str \[ (str/replace s e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") "")) \]))
 (defn- normalize [s] (-> s (str/replace e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") ""))
                          (str/replace "'(" "(list ")
                          ((partial str \[) \])))
 
-(defn- parse [s] (->> s normalize read-string eval to-e to-es :es es-to-bars repeat (mapcat identity)))
+(defn- parse
+  ([s] (parse nil s))
+  ([bar-cnt s] (->> s normalize read-string eval to-e to-es :es (es-to-bars 2) repeat (mapcat identity))))
 
-; (take 1  (parse "'([1+h 2+h])"))
-; (take 1  (parse "#{[1+h 2+h] 1w}"))
+; (->> "1wwww" normalize read-string eval to-e to-es :es (es-to-bars 2))
+; (take 2  (parse "'([1+h 2+h])"))
+; (take 1  (parse "'([1+h 2+h] 1w)"))
 ; (take 1  (parse "[1 3 5]"))
 ; (take 1  (parse "'(1 3 5)"))
-; (take 1  (parse "'(3 5 1)"))
+; (take 2  (parse "'(3 5 1)"))
+; (take 5  (parse "1w ww 2w"))
+; (take 5  (parse 2 "q 1"))
 ; (demo)
 
 (defn- bucket-by-step
   [step coll]
   (->> coll (group-by #(* (quot (:t  %) step) step)) (apply concat) (apply hash-map)))
 
-; (bucket-by-step 1/4 (first (take 1 (parse "1h 2h"))))
+; (bucket-by-step 1/4 (first (parse "1h 2h")))
+; (bucket-by-step 1/2 (first (parse "'(1w 3w 5w)")))
 
 (defn- xbs
-  ([] (xbs {:t 0 :step 1/4} (take 2 (parse "'(1w 3w 5w)"))))
+  ([] (xbs {:t 0 :step 1/2} (take 2 (parse "'(1w 3w 5w)"))))
   ([{:keys [step] :as ctx} bs]
      (lazy-seq
       (when (seq bs)
         (let [{:keys [b] :as ctx}
               (reduce (fn [{:keys [ns s b index] :as ctx} t]
-                        (log/spy [t index])
-                        (let [ns (reduce (fn [ns n]
-                                           (let [n (update-in n [:d] - step)]
-                                                (if (<= (:d n) 0) ns (conj ns n))))
+                        (let [prev-cnt (count ns)
+                              ns (reduce (fn [ns n]
+                                           (let [;_ (log/spy [ns n])
+                                                 n (update-in n [:d] - step)]
+                                             (if (<= (:d n) 0) ns (conj ns n))))
                                          [] ns)
-                              ns (into ns (s t))
-                              index (log/spy (when (not-empty ns) (mod ((fnil inc -1) index) (count ns))))
-;                              b (into b (map #(assoc % :t t :d step) ns))
+                              ns (into ns (log/spy (s t)))
+                              cnt (count ns)
+                              ctx (update-in ctx [:indexes] #(cond
+                                                              (zero? cnt) nil
+                                                              (= cnt prev-cnt) %
+                                                              :else (cycle (concat (range (dec cnt)) (range (dec cnt) 0 -1)))))
+;                              index (log/spy (when (not-empty ns) (mod ((fnil inc -1) index) (count ns))))
+                              index (first (:indexes ctx))
+                              ctx (update-in ctx [:indexes] next)
+                              ctx (assoc ctx :ns ns)
+                              _ (log/spy [t index prev-cnt cnt s ns])
  ;                            _ (log/spy [ns b])
                               ]
-                          (conj (assoc ctx :ns ns :index index) (when index [:b (conj (:b ctx) (assoc (ns index) :t t :d step))]))))
+;                          (conj (assoc ctx :ns ns :indexes (next (:indexes ))) (when index [:b (conj (:b ctx) (assoc (ns index) :t t :d step))]))
+                          (conj ctx (when index [:b (conj (:b ctx) (assoc (ns index) :t t :d step))]))
+                          ))
                       (assoc ctx :b [] :ns [] :s (bucket-by-step step (first bs)))
                       (take-while (partial > 1) (iterate (partial + step) 0)))]
           (cons b (xbs ctx (rest bs))))))))
