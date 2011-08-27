@@ -170,19 +170,14 @@
 (defn- to-es
   ([x] (to-es {:t 0 :es []} x))
   ([ctx x]
-;     (log/debug (str "x: " x))
      (cond
       (map? x) (conj ctx [:t (+ (:t ctx) (:d x))] (when (:deg x) [:es (conj (:es ctx) (assoc x :t (:t ctx)))]))
-;      (map? x) (conj ctx [:t (+ (:t ctx) (:d x))] [:es (conj (:es ctx) (assoc x :t (:t ctx)))])
       (vector? x) (reduce (fn [ctx x] (to-es ctx x)) ctx x)
       (seq? x) (let [new-ctx (reduce (fn [{max-t :max-t :as new-ctx} val]
                                        (let [new-ctx (to-es (assoc new-ctx :t (:t ctx)) val)]
                                               (assoc new-ctx :max-t (max (:t new-ctx) (:max-t new-ctx) max-t))))
                                           (assoc ctx :es [] :max-t (:t ctx)) x)]
                  (assoc new-ctx :t (:max-t new-ctx) :es (concat (:es ctx) (sort #(compare (:t %1) (:t %2)) (:es new-ctx))))))))
-
-; (def x* (->> "'(1 3)" normalize read-string eval to-e))
-; (->> "'(1 3)" normalize read-string eval to-e to-es)
 
 (defn- es-to-bars
   ([es] (es-to-bars nil es))
@@ -193,19 +188,15 @@
                             (assoc bars idx (conj (bars idx) (assoc e :t (- (e :t) idx)))))) [] es)]
        (if bar-cnt (take bar-cnt (concat bars (repeat []))) bars ))))
 
-; (->> "w w" normalize read-string eval to-e to-es)
-; (->> "w" normalize read-string eval to-e)
-; (->> "w 1" normalize read-string eval to-e)
-
-(defn- normalize- [s] (str \[ (str/replace s e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") "")) \]))
 (defn- normalize [s] (-> s (str/replace e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") ""))
                          (str/replace "'(" "(list ")
                          ((partial str \[) \])))
 
 (defn- parse
   ([s] (parse nil s))
-  ([bar-cnt s] (->> s normalize read-string eval to-e to-es :es (es-to-bars 2) repeat (mapcat identity))))
+  ([bar-cnt s] (->> s normalize read-string eval to-e to-es :es (es-to-bars bar-cnt) repeat (mapcat identity))))
 
+; (take 2 (parse "'(1w 3w 5w)"))
 ; (->> "1wwww" normalize read-string eval to-e to-es :es (es-to-bars 2))
 ; (take 2  (parse "'([1+h 2+h])"))
 ; (take 1  (parse "'([1+h 2+h] 1w)"))
@@ -220,11 +211,8 @@
   [step coll]
   (->> coll (group-by #(* (quot (:t  %) step) step)) (apply concat) (apply hash-map)))
 
-; (bucket-by-step 1/4 (first (parse "1h 2h")))
-; (bucket-by-step 1/2 (first (parse "'(1w 3w 5w)")))
-
 (defn- xbs
-  ([] (xbs {:t 0 :step 1/2} (take 2 (parse "'(1w 3w 5w)"))))
+  ([] (xbs {:t 0 :step 1/2} (take 5 (parse "'(1w 3w 5w 6w)"))))
   ([{:keys [step] :as ctx} bs]
      (lazy-seq
       (when (seq bs)
@@ -252,7 +240,7 @@
 ;                          (conj (assoc ctx :ns ns :indexes (next (:indexes ))) (when index [:b (conj (:b ctx) (assoc (ns index) :t t :d step))]))
                           (conj ctx (when index [:b (conj (:b ctx) (assoc (ns index) :t t :d step))]))
                           ))
-                      (assoc ctx :b [] :ns [] :s (bucket-by-step step (first bs)))
+                      (assoc ctx :b [] :s (bucket-by-step step (first bs)))
                       (take-while (partial > 1) (iterate (partial + step) 0)))]
           (cons b (xbs ctx (rest bs))))))))
 
