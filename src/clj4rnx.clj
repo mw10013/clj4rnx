@@ -200,12 +200,22 @@
 ; (->> "1wwww" normalize read-string eval to-e to-es :es (es-to-bars 2))
 ; (take 2  (parse "'([1+h 2+h])"))
 ; (take 1  (parse "'([1+h 2+h] 1w)"))
-; (take 1  (parse "[1 3 5]"))
-; (take 1  (parse "'(1 3 5)"))
-; (take 2  (parse "'(3 5 1)"))
-; (take 5  (parse "1w ww 2w"))
-; (take 5  (parse 2 "q 1"))
-; (demo)
+
+(defn- arp-seq [indexes octs]
+  "Returns seq of index oct pairs"
+  (cycle (apply concat ((juxt identity
+                              (constantly [[(first indexes) (inc (last octs))]])
+                              #(butlast (rseq (vec %)))) (for [oct octs index indexes] [index oct])))))
+
+; (take 25 (arp-seq [1 3 5] (range 3)))
+
+(comment
+  (apply concat ((juxt identity (constantly [[3 1]]) #(butlast (rseq (vec %)))) (for [x (range 3) y [1 3 5]] [x y])))
+  (concat (for [x (range 3) y [1 3 5]] [x y]) (for [x (range 3) y [1 3 5]] [x y]))
+  (take 20 (cycle (apply concat ((juxt range #(range % 0 -1)) (dec 5)))))
+  (take 20 (cycle (apply concat ((juxt range #(range % 0 -1)) (dec 5)))))
+  (rseq (vec (range 3)))
+  )
 
 (defn- bucket-by-step
   [step coll]
@@ -224,32 +234,25 @@
                                                  n (update-in n [:d] - step)]
                                              (if (<= (:d n) 0) ns (conj ns n))))
                                          [] ns)
-                              ns (into ns (log/spy (s t)))
+                              ns (into ns (s t))
                               cnt (count ns)
                               ctx (update-in ctx [:indexes] #(cond
                                                               (zero? cnt) nil
                                                               (= cnt prev-cnt) %
-                                                              :else (cycle (concat (range (dec cnt)) (range (dec cnt) 0 -1)))))
-;                              index (log/spy (when (not-empty ns) (mod ((fnil inc -1) index) (count ns))))
-                              index (first (:indexes ctx))
+;                                                              :else (cycle (concat (range (dec cnt)) (range (dec cnt) 0 -1)))
+                                                              :else (arp-seq (range cnt) (range 3))
+                                                              ))
+                              [index oct] (first (:indexes ctx))
                               ctx (update-in ctx [:indexes] next)
-                              ctx (assoc ctx :ns ns)
-                              _ (log/spy [t index prev-cnt cnt s ns])
- ;                            _ (log/spy [ns b])
-                              ]
-;                          (conj (assoc ctx :ns ns :indexes (next (:indexes ))) (when index [:b (conj (:b ctx) (assoc (ns index) :t t :d step))]))
-                          (conj ctx (when index [:b (conj (:b ctx) (assoc (ns index) :t t :d step))]))
+                              ctx (assoc ctx :ns ns)]
+                          (conj ctx (when index [:b (conj (:b ctx) (assoc (ns index) :t t :oct oct :d step))]))
                           ))
                       (assoc ctx :b [] :s (bucket-by-step step (first bs)))
                       (take-while (partial > 1) (iterate (partial + step) 0)))]
           (cons b (xbs ctx (rest bs))))))))
 
 ; (xbs)
-
-(comment
-  (def bs* (take 1 (parse "1h 2h")))
-  (xbs)
-  )
+; (demo)
 
 (def bar-fs* (ref {}))
 (defn add-bar-f [name f] (dosync (alter bar-fs* assoc name f)) nil)
@@ -276,13 +279,15 @@ e 4e e 4e e 4e e 4e")
 '(1w [5h 6h])
 '(1w [6h 5h])
 '(1w [4h 5h])")
-                           :bell (xbs {:step 1/16 } (parse "'(1w 3w 5w)"))}))
+                           :bell (xbs {:step 1/16 } (parse "'(1w 3w 5w 6w) 2w"))}))
+
+; (demo)
 
 (def patrs*
-     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol :bell])) :bar-cnt 4}
-      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
-      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
-      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
+     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol :bell])) :bar-cnt 8}
+;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
+;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
+;      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
       ])
 
 (defn- deg-to-pitch
