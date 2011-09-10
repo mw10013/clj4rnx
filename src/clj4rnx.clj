@@ -225,6 +225,57 @@
   (rseq (vec (range 3)))
   )
 
+(defn- step-seq-
+  ([] ( step-seq (parse "1 1 q 1") (parse "1e 2e 3e 4e 5e 6e 7e 8e")))
+  ([steps bars] (log/debug (java.util.Date.)) (step-seq {} steps bars))
+  ([ctx steps bars]
+     (lazy-seq
+      (when (and (seq steps) (seq bars))
+        (let [step-notes (->> steps first (map (juxt :t identity)) (into {}) vals
+                              (apply sorted-set-by #(< (:t %1) (:t %2))))
+              {b :b :as ctx} (reduce
+                              (fn [{:keys [src-notes buf b] :as ctx} {:keys [t d]}]
+                                (let [_ (log/debug " ")
+                                      [buf-notes src-notes] (split-with #(<= (:t %) t) src-notes)
+                                      buf (->> (concat (vec (map #(update-in % [:d] - d) buf))
+                                                       (vec (map (fn [{tt :t :as n}] (update-in n [:d] - (- t tt))) buf-notes)))
+                                               (filter #(> (:d %) 0)))
+                                      _ (log/spy (vec buf))
+                                      ctx (assoc ctx :buf buf :src-notes src-notes)]
+                                  (conj ctx (when (seq buf)
+                                              [:b (into (:b ctx) (map #(assoc % :t t :d d) buf))]))))
+                              (assoc ctx :b [] :src-notes (first bars))
+                              step-notes)]
+          (cons b (step-seq ctx (rest steps) (rest bars))))))))
+
+(defn- step-seq
+  ([] ( step-seq (parse "1 1 q 1") (parse "1e 2e 3e 4e 5e 6e 7e 8e")))
+  ([steps bars] (log/debug (java.util.Date.)) (step-seq {} steps bars))
+  ([ctx steps bars]
+     (lazy-seq
+      (when (and (seq steps) (seq bars))
+        (let [step-notes (->> steps first (map (juxt :t identity)) (into {}) vals
+                              (apply sorted-set-by #(< (:t %1) (:t %2))))
+              {:keys [b ctx-t] :as ctx} (reduce
+                              (fn [{:keys [ctx-t src-notes buf b] :as ctx} {:keys [t d]}]
+                                (let [_ (log/debug " ")
+                                      [new-notes src-notes] (split-with #(<= (:t %) t) src-notes)
+                                      buf (->> (concat (map #(update-in % [:d] - (- t ctx-t)) buf)
+                                                       (map (fn [{tt :t :as n}] (update-in n [:d] - (- t tt))) new-notes))
+                                               (filter #(> (:d %) 0)))
+                                      _ (log/spy (vec buf))
+                                      ctx (assoc ctx :ctx-t t :buf buf :src-notes src-notes)]
+                                  (conj ctx (when (seq buf)
+                                              [:b (into (:b ctx) (map #(assoc % :t t :d d) buf))]))))
+                              (assoc ctx :b [] :ctx-t 0 :src-notes (first bars))
+                              step-notes)
+              ctx (update-in ctx [:buf] (fn [buf] (->> buf (map (fn [{t :t :as n}] (update-in n [:d] - (- 1 ctx-t))))
+                                                      (filter #(> (:d %) 0)))))]
+          (cons b (step-seq ctx (rest steps) (rest bars))))))))
+
+; (take 2 (step-seq (parse "1 1s") (parse "2h")))
+; (take 1 (step-seq))
+
 (defn- bucket-step-seq
   "Returns lazy-seq of maps containing steps to notes."
   ([] (bucket-step-seq 1/4 (take 2 (parse "'(1h 3h 5h) 6 4"))))
@@ -266,40 +317,6 @@
 (defn- bucket-by-step
   [step coll]
   (->> coll (group-by #(* (quot (:t  %) step) step)) (apply concat) (apply hash-map)))
-
-(defn- group-by-step [step coll] (group-by #(* (quot (:t  %) step) step) coll))
-
-; (group-by-step 1/2 (take 1 (parse "'(1 3 5) 6")))
-
-(comment (defn- step-thru
-           ([] (step-thru {:step 1/2} (take 5 (parse "'(1w 3w 5w 6w)"))))
-           ([{:keys [step] :as ctx} bs]
-              (lazy-seq
-               (when (seq bs)
-                 (let [{:keys [b] :as ctx}
-                       (reduce (fn [{:keys [ns s b index] :as ctx} t]
-                                 (let [prev-cnt (count ns)
-                                       ns (reduce (fn [ns n]
-                                                    (let [ ;_ (log/spy [ns n])
-                                                          n (update-in n [:d] - step)]
-                                                      (if (<= (:d n) 0) ns (conj ns n))))
-                                                  [] ns)
-                                       ns (into ns (s t))
-                                       cnt (count ns)
-                                       ctx (update-in ctx [:indexes] #(cond
-                                                                       (zero? cnt) nil
-                                                                       (= cnt prev-cnt) %
-                                        ;                                                              :else (cycle (concat (range (dec cnt)) (range (dec cnt) 0 -1)))
-                                                                       :else (arp-seq (range cnt) (->> (range 3) vec rseq))
-                                                                       ))
-                                       [index oct] (first (:indexes ctx))
-                                       ctx (update-in ctx [:indexes] next)
-                                       ctx (assoc ctx :ns ns)]
-                                   (conj ctx (when index [:b (conj (:b ctx) (assoc (ns index) :t t :oct oct :d step))]))
-                                   ))
-                               (assoc ctx :b [] :s (bucket-by-step step (first bs)))
-                               (take-while (partial > 1) (iterate (partial + step) 0)))]
-                   (cons b (step-thu ctx (rest bs)))))))))
 
 (defn- xbs
   ([] (xbs {:t 0 :step 1/2} (take 5 (parse "'(1w 3w 5w 6w)"))))
@@ -360,7 +377,8 @@ e 4e e 4e e 4e e 4e")
 '(1w [6h 5h])
 '(1w [4h 5h])")
 ;                           :bell (xbs {:step 1/16 } (parse "'(1w 3w 5w 6w)"))
-                           :bell (step-together 1/8 (bucket-step-seq 1/8 (parse "'(1w 3w 5w 6w)")))
+;                           :bell (step-together 1/8 (bucket-step-seq 1/8 (parse "'(1w 3w 5w 6w)")))
+                           :bell (step-seq (parse "1 1 1s 1s") (parse "'(1h 5h) '(1h 4h)"))
                            }))
 
 ; (demo)
