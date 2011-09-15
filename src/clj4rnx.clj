@@ -1,11 +1,5 @@
 (ns clj4rnx
   "
-  TODO:
-  defaults for set-notes
-  remove pitch-f from set-ntoes
-  shape velocity
-  lpb per patrn
-  feel
 "
   (:require
    [clojure.string :as str]
@@ -233,7 +227,7 @@
           (cons b (step-seq ctx (rest steps) (rest bars))))))))
 
 ; (step-seq)
-; (map flatten(step-seq))
+; (map flatten (step-seq))
 
 (defn- arp-index-seq [indexes octs]
   "Returns seq of index oct pairs"
@@ -244,61 +238,25 @@
 ; (take 25 (arp-index-seq [1 3 5] (range 3)))
 
 (defn- arp-seq
-  ([] (arp-seq ))
-  ([ctx bars]
-     ))
-
-; (take 2 (step-seq (parse "e 1e 1s") (parse "2h")))
-; (take 1 (step-seq))
-
-(defn- bucket-step-seq
-  "Returns lazy-seq of maps containing steps to notes."
-  ([] (bucket-step-seq 1/4 (take 2 (parse "'(1h 3h 5h) 6 4"))))
-  ([step bs] (lazy-seq (when (seq bs)
-                         (let [b (->> bs first (group-by #(* (quot (:t  %) step) step)) (apply concat) (apply hash-map))]
-                           (cons b (bucket-step-seq step (rest bs))))))))
-
-; (bucket-step-seq)
-; (take 2 (bucket-step-seq 1/4 (parse "'(1h 3h) 5")))
-; (take 2 (bucket-step-seq 1/8 (parse "'(1w 3w 5w 6w)")))
-; (type (bucket-step-seq 1/8 (parse "'(1w 3w 5w 6w)")))
-
-(defn- bucket-by-step
-  [step coll]
-  (->> coll (group-by #(* (quot (:t  %) step) step)) (apply concat) (apply hash-map)))
-
-(defn- xbs
-  ([] (xbs {:t 0 :step 1/2} (take 5 (parse "'(1w 3w 5w 6w)"))))
-  ([{:keys [step] :as ctx} bs]
+  ([] (arp-seq {:octs (range 3)} (take 2 (step-seq (parse "1e 1e 1e 1e 1e") (parse "'(1w 3w 5w)")))))
+  ([ctx step-bars]
      (lazy-seq
-      (when (seq bs)
-        (let [{:keys [b] :as ctx}
-              (reduce (fn [{:keys [ns s b index] :as ctx} t]
-                        (let [prev-cnt (count ns)
-                              ns (reduce (fn [ns n]
-                                           (let [;_ (log/spy [ns n])
-                                                 n (update-in n [:d] - step)]
-                                             (if (<= (:d n) 0) ns (conj ns n))))
-                                         [] ns)
-                              ns (into ns (s t))
-                              cnt (count ns)
+      (when (seq step-bars)
+        (let [{b :b :as ctx}
+              (reduce (fn [{:keys [prev-cnt octs b] :as ctx} step]
+                        (let [cnt (count step)
                               ctx (update-in ctx [:indexes] #(cond
                                                               (zero? cnt) nil
                                                               (= cnt prev-cnt) %
-;                                                              :else (cycle (concat (range (dec cnt)) (range (dec cnt) 0 -1)))
-                                                              :else (arp-index-seq (range cnt) (->> (range 3) vec rseq))
-                                                              ))
+                                                              :else (arp-index-seq (range cnt) octs)))
                               [index oct] (first (:indexes ctx))
-                              ctx (update-in ctx [:indexes] next)
-                              ctx (assoc ctx :ns ns)]
-                          (conj ctx (when index [:b (conj (:b ctx) (assoc (ns index) :t t :oct oct :d step))]))
-                          ))
-                      (assoc ctx :b [] :s (bucket-by-step step (first bs)))
-                      (take-while (partial > 1) (iterate (partial + step) 0)))]
-          (cons b (xbs ctx (rest bs))))))))
+                              ctx (update-in ctx [:indexes] next)]
+                          (conj ctx [:prev-cnt cnt] (when index [:b (conj (:b ctx) (assoc (nth step index) :oct oct))]))))
+                      (assoc ctx :b [])
+                      (first step-bars))]
+          (cons b (arp-seq ctx (rest step-bars))))))))
 
-; (xbs)
-; (demo)
+; (take 2 (arp-seq))
 
 (def bar-fs* (ref {}))
 (defn add-bar-f [name f] (dosync (alter bar-fs* assoc name f)) nil)
@@ -319,21 +277,20 @@
 e 5e e 5e e 5e e 5e
 e 6e e 6e e 6e e 6e
 e 4e e 4e e 4e e 4e")
-;                           :hov (parse "'(1q 5q)")
-                           :hov (xbs {:step 1/8} (parse "1q 3q 5q"))
+                           :hov (parse "'(1q 5q)")
                            :pad (parse "'(1w [1+h 2+h])
 '(1w [5h 6h])
 '(1w [6h 5h])
 '(1w [4h 5h])")
-;                           :bell (xbs {:step 1/16 } (parse "'(1w 3w 5w 6w)"))
-;                           :bell (step-seq (parse "1 1 1s 1s") (parse "'(1h 5h) '(1h 4h)"))
-                           :bell (map flatten (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)")))
+;                           :bell (map flatten (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)")))
+                           :bell (arp-seq {:octs  (range 3)} (step-seq (parse "1 1 s 1s") (parse "'(1w 3w 5w 6w)")))
                            }))
 
 ; (demo)
+; (take 2 (arp-seq (range 3) (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)"))))
 
 (def patrs*
-     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol :bell])) :bar-cnt 4}
+     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol :bell])) :bar-cnt 16}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
 ;      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
