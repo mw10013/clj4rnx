@@ -203,31 +203,58 @@
 ; (take 2  (parse "'([1+h 2+h])"))
 ; (take 1  (parse "'([1+h 2+h] 1w)"))
 
+(defn- step-all [step buf]
+  (log/debug (str "step-all: " [step buf]))
+  (let [{:keys [t d]} (log/spy (first step))]
+    (map #(assoc % :t t :d d) buf)))
+
+; (step-all [{:t 1/4 :d 1/4}] '({:t 0, :deg 1, :d 1/2} {:t 0, :deg 5, :d 1/2}))
+
+(defn- step-index [step buf]
+  (log/spy [step buf])
+  (reduce (fn [coll index]
+            (log/debug (str "index: " index))
+            (if-let [n (log/spy (get (vec buf) (dec (:deg index))))]
+              (log/spy (conj coll (assoc n :t (:t index) :d (:d index))))
+              coll)) [] step))
+
+; (take 2 (step-seq (parse "1") (parse "'(1h 5h)")))
+; (step-index [{:t 1/2 :deg 2 :d 1/4}] [{:t 0 :deg 2 :d 1} {:t 0 :deg 22 :d 1}])
+; (take 1 (step-seq step-index (parse "1e 2e 1e") (parse "'(1h 3h 5h)")))
+
 (defn- step-seq
   ([] (take 2 (step-seq (parse "1 1s 1s") (parse "'(1e 1+e) 2e 3e"))))
-  ([steps bars] (comment (log/debug (apply str (repeat 20 \*)))) (step-seq {} steps bars))
-  ([ctx steps bars]
+  ([steps bars] (log/debug (apply str (repeat 20 \*))) (step-seq step-all steps bars))
+  ([f steps bars] (step-seq {} f steps bars))
+  ([ctx f steps bars]
      (lazy-seq
       (when (and (seq steps) (seq bars))
-        (let [step-notes (->> steps first (map (juxt :t identity)) (into {}) vals
-                              (apply sorted-set-by #(< (:t %1) (:t %2))))
+        (let [step-notes (->> steps first (group-by :t) (map second))
               {:keys [b ctx-t] :as ctx} (reduce
-                              (fn [{:keys [ctx-t src-notes buf b] :as ctx} {:keys [t d]}]
-                                (let [[new-notes src-notes] (split-with #(<= (:t %) t) src-notes)
-                                      buf (->> (concat (map #(update-in % [:d] - (- t ctx-t)) buf)
-                                                       (map (fn [{tt :t :as n}] (update-in n [:d] - (- t tt))) new-notes))
-                                               (filter #(> (:d %) 0)))
-                                      ctx (assoc ctx :ctx-t t :buf buf :src-notes src-notes)]
-                                  (conj ctx (when (seq buf)
-                                              [:b (vec (concat (:b ctx)  (vector (map #(assoc % :t t :d d) buf))))]))))
-                              (assoc ctx :b [] :ctx-t 0 :src-notes (first bars))
-                              step-notes)
+                                         (fn [{:keys [ctx-t src-notes buf b] :as ctx} step]
+                                           (let [{:keys [t d]} (first step)
+                                                 [new-notes src-notes] (split-with #(<= (:t %) t) src-notes)
+                                                 _ (log/spy [new-notes src-notes buf (type f)])
+                                                 buf (->> (concat (map #(update-in % [:d] - (- t ctx-t)) buf)
+                                                                  (map (fn [{tt :t :as n}] (update-in n [:d] - (- t tt))) new-notes))
+                                                          (filter #(> (:d %) 0)))
+                                                 _ (log/spy [(first step) buf])
+                                                 ctx (assoc ctx :ctx-t t :buf buf :src-notes src-notes)]
+                                             (conj ctx (when (seq buf) [:b (vec (concat (:b ctx)  (log/spy (vec (f step buf)))))]))
+                                             ))
+                                         (assoc ctx :b [] :ctx-t 0 :src-notes (first bars))
+                                         step-notes)
               ctx (update-in ctx [:buf] (fn [buf] (->> buf (map (fn [{t :t :as n}] (update-in n [:d] - (- 1 ctx-t))))
                                                       (filter #(> (:d %) 0)))))]
-          (cons b (step-seq ctx (rest steps) (rest bars))))))))
+          (cons b (step-seq ctx f (rest steps) (rest bars))))))))
 
+; (take 2 (step-seq (parse "1") (parse "'(1h 5h)")))
 ; (step-seq)
 ; (map flatten (step-seq))
+; (->> (parse "1 1s 1s") first (group-by :t))
+; (->> (parse "1 1s 1s") first (group-by :t) (map second))
+; (take 2 (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)")))
+; (take 2 (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)")))
 
 (defn- arp-index-seq [indexes octs]
   "Returns seq of index oct pairs"
@@ -282,8 +309,8 @@ e 4e e 4e e 4e e 4e")
 '(1w [5h 6h])
 '(1w [6h 5h])
 '(1w [4h 5h])")
-;                           :bell (map flatten (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)")))
-                           :bell (arp-seq {:octs  (range 3)} (step-seq (parse "1 1 s 1s") (parse "'(1w 3w 5w 6w)")))
+                           :bell (map flatten (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)")))
+;                           :bell (arp-seq {:octs  (range 3)} (step-seq (parse "1 1 s 1s") (parse "'(1w 3w 5w 6w)")))
                            }))
 
 ; (demo)
