@@ -97,6 +97,14 @@
     (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
   (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs song))))
 
+(comment (defn- note-col [t off-t off-vec]
+           (let [index (or  (->> off-vec
+                                 (map-indexed vector)
+                                 (filter (fn [[index off-t]] (when (>= t off-t) index)))
+                                 ffirst)
+                            (count off-vec))]
+             [index (assoc off-vec index off-t)])))
+
 (defn- note-col [t off-t off-vec]
   (let [index (or  (->> off-vec
                         (map-indexed vector)
@@ -104,6 +112,9 @@
                         ffirst)
                    (count off-vec))]
     [index (assoc off-vec index off-t)]))
+
+; (note-col 1/4 1/2 [1/4 1/4])
+; (demo)
 
 (defn set-notes [trk-idx pitch-f notes]
   (ev "clj4rnx.track = clj4rnx.song:track(" trk-idx ")")
@@ -204,44 +215,46 @@
 ; (take 1  (parse "'([1+h 2+h] 1w)"))
 
 (defn- step-all [step buf]
-  (log/debug (str "step-all: " [step buf]))
-  (let [{:keys [t d]} (log/spy (first step))]
+  (let [{:keys [t d]} (first step)]
     (map #(assoc % :t t :d d) buf)))
 
 ; (step-all [{:t 1/4 :d 1/4}] '({:t 0, :deg 1, :d 1/2} {:t 0, :deg 5, :d 1/2}))
 
 (defn- step-index [step buf]
-  (log/spy [step buf])
   (reduce (fn [coll index]
-            (log/debug (str "index: " index))
-            (if-let [n (log/spy (get (vec buf) (dec (:deg index))))]
-              (log/spy (conj coll (assoc n :t (:t index) :d (:d index))))
+            (if-let [; n (nth buf (- (count buf) (:deg index)) nil)
+                     n (nth buf (dec (:deg index)) nil)]
+              (conj coll (conj n [:t (:t index)] [:d (:d index)] (if (:oct index) [:oct (:oct index)])))
               coll)) [] step))
 
-; (take 2 (step-seq (parse "1") (parse "'(1h 5h)")))
+(comment (take 2 (step-seq step-index
+                           (parse "1s 2-s 2s 1s
+2-s 1s 2s 2-s
+1s 2s 2-s 1s
+2-s 2s 1s 2-s")
+                           (parse "'(2+w 4w)")))
+         )
+; (take 2 (step-seq step-index(parse "1e 2e 2-e 1") (parse "'(1h 5h)")))
 ; (step-index [{:t 1/2 :deg 2 :d 1/4}] [{:t 0 :deg 2 :d 1} {:t 0 :deg 22 :d 1}])
 ; (take 1 (step-seq step-index (parse "1e 2e 1e") (parse "'(1h 3h 5h)")))
 
 (defn- step-seq
   ([] (take 2 (step-seq (parse "1 1s 1s") (parse "'(1e 1+e) 2e 3e"))))
-  ([steps bars] (log/debug (apply str (repeat 20 \*))) (step-seq step-all steps bars))
+  ([steps bars] (comment (log/debug (apply str (repeat 20 \*)))) (step-seq step-all steps bars))
   ([f steps bars] (step-seq {} f steps bars))
   ([ctx f steps bars]
      (lazy-seq
       (when (and (seq steps) (seq bars))
-        (let [step-notes (->> steps first (group-by :t) (map second))
+        (let [step-notes (->> steps first (group-by :t) (into (sorted-map)) (map second))
               {:keys [b ctx-t] :as ctx} (reduce
                                          (fn [{:keys [ctx-t src-notes buf b] :as ctx} step]
                                            (let [{:keys [t d]} (first step)
                                                  [new-notes src-notes] (split-with #(<= (:t %) t) src-notes)
-                                                 _ (log/spy [new-notes src-notes buf (type f)])
                                                  buf (->> (concat (map #(update-in % [:d] - (- t ctx-t)) buf)
                                                                   (map (fn [{tt :t :as n}] (update-in n [:d] - (- t tt))) new-notes))
                                                           (filter #(> (:d %) 0)))
-                                                 _ (log/spy [(first step) buf])
                                                  ctx (assoc ctx :ctx-t t :buf buf :src-notes src-notes)]
-                                             (conj ctx (when (seq buf) [:b (vec (concat (:b ctx)  (log/spy (vec (f step buf)))))]))
-                                             ))
+                                             (conj ctx (when (seq buf) [:b (vec (concat (:b ctx) (vec (f step buf))))]))))
                                          (assoc ctx :b [] :ctx-t 0 :src-notes (first bars))
                                          step-notes)
               ctx (update-in ctx [:buf] (fn [buf] (->> buf (map (fn [{t :t :as n}] (update-in n [:d] - (- 1 ctx-t))))
@@ -293,6 +306,20 @@
 (defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
 (defn get-patr-f [name] (@patr-fs* name))
 
+(def bars*
+     {:cloudburst-1
+      (parse "
+'(4+w 2w 2-w)
+'(3+h 1h 1-h) '(1+h 1h 1-h)
+'(2+w 7bw 7b-w)
+'(2+h 7bh 7b-h) '(3+h 1h 1-h)
+")
+      :cloudburst-2
+      (parse "
+'(4+h 2h 2-h) '(3+q. 2q. 2-q.) '(4+e 2e 2-e)
+")
+      })
+
 (add-patr-f :grv-1-full (fn []
                           {:bd (parse "1 1 1 1")
                            :bd-vol (parse "1/4 1/2 3/4 1")
@@ -309,7 +336,17 @@ e 4e e 4e e 4e e 4e")
 '(1w [5h 6h])
 '(1w [6h 5h])
 '(1w [4h 5h])")
-                           :bell (map flatten (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)")))
+;                           :bell (map flatten (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)")))
+;                           :bell (map flatten (step-seq step-index(parse "1e 2e 1e 2e 1e 2e 1e 2e") (parse "'(1h 5h) '(1h 4h)")))
+                           :bell (map flatten (step-seq step-index
+                                                        (parse "
+1s 3s 2s 1s
+3s 1s 2s 3s
+1s 2s 3s 1s
+3s 2s 1s 3s
+
+")
+                                                        (:cloudburst-1 bars*)))
 ;                           :bell (arp-seq {:octs  (range 3)} (step-seq (parse "1 1 s 1s") (parse "'(1w 3w 5w 6w)")))
                            }))
 
@@ -317,7 +354,7 @@ e 4e e 4e e 4e e 4e")
 ; (take 2 (arp-seq (range 3) (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)"))))
 
 (def patrs*
-     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bd-vol :bell])) :bar-cnt 16}
+     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bell])) :bar-cnt 16}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
 ;      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
