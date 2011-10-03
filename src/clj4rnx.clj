@@ -307,16 +307,23 @@
 (defn get-patr-f [name] (@patr-fs* name))
 
 (def bars*
-     {:cloudburst-1
-      (parse "
+     {:cb-ss-1 (parse "
+1s 3s 2s 1s
+3s 1s 2s 3s
+1s 2s 3s 1s
+3s 2s 1s 3s
+")
+      :cb-1 (parse "
 '(4+w 2w 2-w)
 '(3+h 1h 1-h) '(1+h 1h 1-h)
-'(2+w 7bw 7b-w)
-'(2+h 7bh 7b-h) '(3+h 1h 1-h)
+'(2+w 7b-w 7b--w)
+'(2+h 7b-h 7b--h) '(3+h 1h 1-h)
 ")
-      :cloudburst-2
-      (parse "
-'(4+h 2h 2-h) '(3+q. 2q. 2-q.) '(4+e 2e 2-e)
+      :cb-2 (parse "
+'(4+h 2h 2-h) '(3+ 2 2-) '(4+ 2 2-)
+'(5+h 3h 3-h) '(1+h 3h 3-h)
+'(6+w 4w 4-w)
+'(6+h 4h 4-h) '(5+q. 4q. 4-q.) '(6+e 4e 4-e)
 ")
       })
 
@@ -336,25 +343,18 @@ e 4e e 4e e 4e e 4e")
 '(1w [5h 6h])
 '(1w [6h 5h])
 '(1w [4h 5h])")
-;                           :bell (map flatten (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)")))
-;                           :bell (map flatten (step-seq step-index(parse "1e 2e 1e 2e 1e 2e 1e 2e") (parse "'(1h 5h) '(1h 4h)")))
-                           :bell (map flatten (step-seq step-index
-                                                        (parse "
-1s 3s 2s 1s
-3s 1s 2s 3s
-1s 2s 3s 1s
-3s 2s 1s 3s
-
-")
-                                                        (:cloudburst-1 bars*)))
-;                           :bell (arp-seq {:octs  (range 3)} (step-seq (parse "1 1 s 1s") (parse "'(1w 3w 5w 6w)")))
                            }))
+
+(add-patr-f :cb-1 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-1 bars*))}))
+(add-patr-f :cb-2 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-2 bars*))}))
 
 ; (demo)
 ; (take 2 (arp-seq (range 3) (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)"))))
 
 (def patrs*
-     [{:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :bell])) :bar-cnt 16}
+     [{
+;       :patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-1)) [:bell]))) :bar-cnt 4
+       :patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-2)) [:bell]))) :bar-cnt 4}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
 ;      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
@@ -384,7 +384,7 @@ e 4e e 4e e 4e e 4e")
            (interpose \,)
            (apply str)) \}))
 
-; (demo) 
+; (demo)
 
 (defn set-patr [song idx]
   (let [{:keys [patr-f bar-cnt]} (-> song :patrs (get idx))
@@ -417,7 +417,7 @@ e 4e e 4e e 4e e 4e")
                  {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
-                 {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 29}]
+                 {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 38}]
         :tracks [{:id :bd
                   :devices- ["Audio/Effects/    Native/Delay"]
                   :automation [{:id :bd-vol :device-index 0 :param-index 1}
