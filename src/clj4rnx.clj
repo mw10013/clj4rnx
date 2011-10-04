@@ -97,14 +97,6 @@
     (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
   (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs song))))
 
-(comment (defn- note-col [t off-t off-vec]
-           (let [index (or  (->> off-vec
-                                 (map-indexed vector)
-                                 (filter (fn [[index off-t]] (when (>= t off-t) index)))
-                                 ffirst)
-                            (count off-vec))]
-             [index (assoc off-vec index off-t)])))
-
 (defn- note-col [t off-t off-vec]
   (let [index (or  (->> off-vec
                         (map-indexed vector)
@@ -227,13 +219,6 @@
               (conj coll (conj n [:t (:t index)] [:d (:d index)] (if (:oct index) [:oct (:oct index)])))
               coll)) [] step))
 
-(comment (take 2 (step-seq step-index
-                           (parse "1s 2-s 2s 1s
-2-s 1s 2s 2-s
-1s 2s 2-s 1s
-2-s 2s 1s 2-s")
-                           (parse "'(2+w 4w)")))
-         )
 ; (take 2 (step-seq step-index(parse "1e 2e 2-e 1") (parse "'(1h 5h)")))
 ; (step-index [{:t 1/2 :deg 2 :d 1/4}] [{:t 0 :deg 2 :d 1} {:t 0 :deg 22 :d 1}])
 ; (take 1 (step-seq step-index (parse "1e 2e 1e") (parse "'(1h 3h 5h)")))
@@ -325,6 +310,17 @@
 '(6+w 4w 4-w)
 '(6+h 4h 4-h) '(5+q. 4q. 4-q.) '(6+e 4e 4-e)
 ")
+      :cb-3 (parse "
+'(7b+h 5h 5-h) '(6+ 5 5-) '(5+ 5 5-)
+'(4+h 2h 2-h) '(2+h 2h 2-h)
+'(5+ 3b 3b-) '(6+ 3b 3b-) '(4+ 3b 3b-) '(5+ 3b 3b-)
+'(4+h 2h 2-h) '(2+h 2h 2-h)
+")
+      :cb-4 (parse "
+'(2+h 7b-h 7b--h) '(3+ 7b- 7b--) '(4+ 7b- 7b--)
+'(3+h 6-h 6--h) '(1+h 6-h 6--h)
+'(2+ww 2ww 2-ww)
+")
       })
 
 (add-patr-f :grv-1-full (fn []
@@ -347,14 +343,15 @@ e 4e e 4e e 4e e 4e")
 
 (add-patr-f :cb-1 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-1 bars*))}))
 (add-patr-f :cb-2 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-2 bars*))}))
-
-; (demo)
-; (take 2 (arp-seq (range 3) (step-seq (parse "1 1 s 1s") (parse "'(1h 5h) '(1h 4h) '(1h 3h) '(1h 4h)"))))
+(add-patr-f :cb-3 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-3 bars*))}))
+(add-patr-f :cb-4 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-4 bars*))}))
 
 (def patrs*
-     [{
-;       :patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-1)) [:bell]))) :bar-cnt 4
-       :patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-2)) [:bell]))) :bar-cnt 4}
+     [
+      {:patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-1)) [:bell]))) :bar-cnt 4}
+      {:patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-2)) [:bell]))) :bar-cnt 4}
+      {:patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-3)) [:bell]))) :bar-cnt 4}
+      {:patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-4)) [:bell]))) :bar-cnt 4}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
 ;      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
@@ -364,7 +361,7 @@ e 4e e 4e e 4e e 4e")
   ([deg oct acc]
      (deg-to-pitch 48 deg oct acc))
   ([base deg oct acc]
-      (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
+     (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
 
 (defn set-note-bars [trk-idx pitch-f note-f bars]
   (set-notes trk-idx pitch-f
@@ -383,8 +380,6 @@ e 4e e 4e e 4e e 4e")
            (map #(str "{time=" (->  % :t inc) ", value=" (double (:deg %)) \}))
            (interpose \,)
            (apply str)) \}))
-
-; (demo)
 
 (defn set-patr [song idx]
   (let [{:keys [patr-f bar-cnt]} (-> song :patrs (get idx))
