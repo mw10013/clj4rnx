@@ -200,6 +200,8 @@
   ([s] (parse nil s))
   ([bar-cnt s] (->> s normalize read-string eval to-e to-es :es (es-to-bars bar-cnt) repeat (mapcat identity))))
 
+; (take 3 (parse 2 "1ww"))
+; (take 3 (parse "ww"))
 ; (take 2 (parse "'(1 3 5) 6"))
 ; (take 2 (parse "'(1w 3w 5w)"))
 ; (->> "1wwww" normalize read-string eval to-e to-es :es (es-to-bars 2))
@@ -213,18 +215,18 @@
 ; (step-all [{:t 1/4 :d 1/4}] '({:t 0, :deg 1, :d 1/2} {:t 0, :deg 5, :d 1/2}))
 
 (defn- step-index [step buf]
-  (reduce (fn [coll index]
-            (if-let [; n (nth buf (- (count buf) (:deg index)) nil)
-                     n (nth buf (dec (:deg index)) nil)]
-              (conj coll (conj n [:t (:t index)] [:d (:d index)] (if (:oct index) [:oct (:oct index)])))
-              coll)) [] step))
+  (let [buf (sort-by #(+ (*  (get % :oct 0) 12) (:deg %)) > buf)]
+    (reduce (fn [coll index]
+              (if-let [n (nth buf (dec (:deg index)) nil)]
+                (conj coll (conj n [:t (:t index)] [:d (:d index)] (if (:oct index) [:oct (:oct index)])))
+                coll)) [] step)))
 
 ; (take 2 (step-seq step-index(parse "1e 2e 2-e 1") (parse "'(1h 5h)")))
 ; (step-index [{:t 1/2 :deg 2 :d 1/4}] [{:t 0 :deg 2 :d 1} {:t 0 :deg 22 :d 1}])
 ; (take 1 (step-seq step-index (parse "1e 2e 1e") (parse "'(1h 3h 5h)")))
 
 (defn- step-seq
-  ([] (take 2 (step-seq (parse "1 1s 1s") (parse "'(1e 1+e) 2e 3e"))))
+  ([] (take 3 (step-seq (parse "1") (parse "1ww"))))
   ([steps bars] (comment (log/debug (apply str (repeat 20 \*)))) (step-seq step-all steps bars))
   ([f steps bars] (step-seq {} f steps bars))
   ([ctx f steps bars]
@@ -248,6 +250,8 @@
 
 ; (take 2 (step-seq (parse "1") (parse "'(1h 5h)")))
 ; (step-seq)
+; (take 3 (parse "1ww"))
+; (take 3 (parse "1ww"))
 ; (map flatten (step-seq))
 ; (->> (parse "1 1s 1s") first (group-by :t))
 ; (->> (parse "1 1s 1s") first (group-by :t) (map second))
@@ -290,6 +294,7 @@
 (def patr-fs* (ref {}))
 (defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
 (defn get-patr-f [name] (@patr-fs* name))
+(defn get-patr [name] ((get-patr-f name)))
 
 (def bars*
      {:cb-ss-1 (parse "
@@ -300,28 +305,30 @@
 ")
       :cb-1 (parse "
 '(4+w 2w 2-w)
-'(3+h 1h 1-h) '(1+h 1h 1-h)
+'([3+h 1+h] 1w 1-w) 
 '(2+w 7b-w 7b--w)
 '(2+h 7b-h 7b--h) '(3+h 1h 1-h)
 ")
       :cb-2 (parse "
-'(4+h 2h 2-h) '(3+ 2 2-) '(4+ 2 2-)
-'(5+h 3h 3-h) '(1+h 3h 3-h)
+'([4+h 3+ 4+] 2w 2-w)
+'([5+h 1+h] 3w 3-w)
 '(6+w 4w 4-w)
-'(6+h 4h 4-h) '(5+q. 4q. 4-q.) '(6+e 4e 4-e)
+'([6+h 5+q. 6+3] 4w 4-w)
 ")
       :cb-3 (parse "
-'(7b+h 5h 5-h) '(6+ 5 5-) '(5+ 5 5-)
-'(4+h 2h 2-h) '(2+h 2h 2-h)
-'(5+ 3b 3b-) '(6+ 3b 3b-) '(4+ 3b 3b-) '(5+ 3b 3b-)
-'(4+h 2h 2-h) '(2+h 2h 2-h)
+'([7b+h 6+ 5+] 5w 5-w)
+'([4+h 2+h] 2w 2-w)
+'([5+ 6+ 4+ 5+] 3bw 3b-w)
+'([4+h 2+h] 2w 2-w)
 ")
-      :cb-4 (parse "
-'(2+h 7b-h 7b--h) '(3+ 7b- 7b--) '(4+ 7b- 7b--)
-'(3+h 6-h 6--h) '(1+h 6-h 6--h)
+      :cb-4 (parse 4 "
+'([2+h 3+ 4+] 7b-w 7b--w)
+'([3+h 1+h] 6-w 6--w)
 '(2+ww 2ww 2-ww)
 ")
       })
+
+; (demo)
 
 (add-patr-f :grv-1-full (fn []
                           {:bd (parse "1 1 1 1")
@@ -341,6 +348,7 @@ e 4e e 4e e 4e e 4e")
 '(1w [4h 5h])")
                            }))
 
+(add-patr-f :bd #(select-keys ((get-patr-f :grv-1-full)) [:bd]))
 (add-patr-f :cb-1 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-1 bars*))}))
 (add-patr-f :cb-2 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-2 bars*))}))
 (add-patr-f :cb-3 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-3 bars*))}))
@@ -348,7 +356,7 @@ e 4e e 4e e 4e e 4e")
 
 (def patrs*
      [
-      {:patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-1)) [:bell]))) :bar-cnt 4}
+      {:patr-f (fn [] (merge (get-patr :bd) (select-keys (get-patr :cb-1) [:bell]))) :bar-cnt 4}
       {:patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-2)) [:bell]))) :bar-cnt 4}
       {:patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-3)) [:bell]))) :bar-cnt 4}
       {:patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-4)) [:bell]))) :bar-cnt 4}
@@ -432,8 +440,7 @@ e 4e e 4e e 4e e 4e")
   (reset-song song*)
   (set-patrs song*))
 
-; (demo)
-
 (defonce *interactive* false)
 (when *interactive* (loop-patr song* 0))
 
+(demo)
