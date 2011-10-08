@@ -287,55 +287,47 @@
 
 ; (take 2 (arp-seq))
 
-(def bar-fs* (ref {}))
-(defn add-bar-f [name f] (dosync (alter bar-fs* assoc name f)) nil)
-(defn get-bars [name] ((@bar-fs* name)))
-
 (def patr-fs* (ref {}))
 (defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
 (defn get-patr-f [name] (@patr-fs* name))
+(defn add-patr [name patr] (add-patr-f name (constantly patr)))
 (defn get-patr [name] ((get-patr-f name)))
+(defn drop-patr [n patr] (into {} (map #(assoc % 1 (drop n (get % 1))) patr)))
 
-(def bars*
-     {:cb-ss-1 (parse "
+; (demo)
+
+(add-patr :steps
+          {:cloudburst (parse "
 1s 3s 2s 1s
 3s 1s 2s 3s
 1s 2s 3s 1s
-3s 2s 1s 3s
-")
-      :cb-1 (parse "
+3s 2s 1s 3s")})
+
+(add-patr :seeds
+          {:cloudburst (step-seq step-index (:cloudburst (get-patr :steps))
+                         (parse 16 "
 '(4+w 2w 2-w)
 '([3+h 1+h] 1w 1-w) 
 '(2+w 7b-w 7b--w)
 '(2+h 7b-h 7b--h) '(3+h 1h 1-h)
-")
-      :cb-2 (parse "
 '([4+h 3+ 4+] 2w 2-w)
 '([5+h 1+h] 3w 3-w)
 '(6+w 4w 4-w)
-'([6+h 5+q. 6+3] 4w 4-w)
-")
-      :cb-3 (parse "
+'([6+h 5+q. 6+e] 4w 4-w)
 '([7b+h 6+ 5+] 5w 5-w)
 '([4+h 2+h] 2w 2-w)
 '([5+ 6+ 4+ 5+] 3bw 3b-w)
 '([4+h 2+h] 2w 2-w)
-")
-      :cb-4 (parse 4 "
 '([2+h 3+ 4+] 7b-w 7b--w)
 '([3+h 1+h] 6-w 6--w)
-'(2+ww 2ww 2-ww)
-")
-      })
-
-; (demo)
+'(2+ww 2ww 2-ww)"))})
 
 (add-patr-f :grv-1-full (fn []
                           {:bd (parse "1 1 1 1")
                            :bd-vol (parse "1/4 1/2 3/4 1")
                            :sd (parse "q 1 q 1")
-                           :hh-c (parse "e 1e e 1e e 1e e 1e")
-                           :hc (parse "1 1 1 1e 1e 1 1 1 1e s 1s")
+;                           :hh-c (parse "e 1e e 1e e 1e e 1e")
+;                           :hc (parse "1 1 1 1e 1e 1 1 1 1e s 1s")
                            :bass- (parse "1+h0.45 {:a 1.25}  5+h1")
                            :bass (parse "e 1+e e 1+e e 1+e e 1+e
 e 5e e 5e e 5e e 5e
@@ -349,17 +341,11 @@ e 4e e 4e e 4e e 4e")
                            }))
 
 (add-patr-f :bd #(select-keys ((get-patr-f :grv-1-full)) [:bd]))
-(add-patr-f :cb-1 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-1 bars*))}))
-(add-patr-f :cb-2 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-2 bars*))}))
-(add-patr-f :cb-3 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-3 bars*))}))
-(add-patr-f :cb-4 (fn[] {:bell (step-seq step-index (:cb-ss-1 bars*) (:cb-4 bars*))}))
 
 (def patrs*
      [
-      {:patr-f (fn [] (merge (get-patr :bd) (select-keys (get-patr :cb-1) [:bell]))) :bar-cnt 4}
-      {:patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-2)) [:bell]))) :bar-cnt 4}
-      {:patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-3)) [:bell]))) :bar-cnt 4}
-      {:patr-f (fn [] (merge (select-keys ((get-patr-f :grv-1-full)) [:bd]) (select-keys ((get-patr-f :cb-4)) [:bell]))) :bar-cnt 4}
+;      {:patr-f (fn [] (drop-patr 0 (get-patr :cb))) :bar-cnt 16}
+      {:patr-f (fn [] (assoc (select-keys (get-patr :grv-1-full) [:bd]) :bell (:cloudburst (get-patr :seeds)))) :bar-cnt 16}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
 ;      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
