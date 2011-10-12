@@ -332,13 +332,15 @@ e 4e e 4e e 4e e 4e")
 
 (def patrs*
      [
-;      {:patr-f (fn [] {:pad (parse "1w.")}) :bar-cnt 1}
-;      {:patr-f (fn [] {:pad (parse "4h")}) :bar-cnt 1}
+;      {:patr-f (fn [] {:pad (parse "'(1w 1-w)")}) :bar-cnt 1}
+;      {:patr-f (fn [] {:pad (parse "'7")}) :bar-cnt 1}
+;      {:patr-f (fn [] {:pad (parse "'(1w. 4w.)")}) :bar-cnt 1}
+;      {:patr-f (fn [] {:bell (parse "4h")}) :bar-cnt 1}
+;      {:patr-f (fn [] (merge (get-patr :bd)
+;                            {:pad (:cloudburst (get-patr :seeds))})) :bar-cnt 16}
+      {:patr-f (fn [] {:pad (:cloudburst (get-patr :seeds))}) :bar-cnt 16}
       {:patr-f (fn [] (merge (get-patr :bd)
-                            {:pad (:cloudburst (get-patr :seeds))})) :bar-cnt 16}
-      {:patr-f (fn [] (merge (get-patr :bd)
-                            {:bell (apply step-seq step-index ((juxt :cloudburst-steps :cloudburst) (get-patr :seeds)))
-                             :pad (parse "")}))
+                            {:pad (apply step-seq step-index ((juxt :cloudburst-steps :cloudburst) (get-patr :seeds)))}))
        :bar-cnt 16}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
@@ -357,10 +359,8 @@ e 4e e 4e e 4e e 4e")
                            (map (or note-f identity)
                                 (mapcat (fn [idx bar] (map #(update-in % [:t] (partial + idx)) bar))
                                         (iterate inc 0) bars)))
-;        bars-t (* (count bars) 4)
-        bars-t (count bars)
-        ]
-    (log/spy (->> (log/spy off-vec) (map #(- % bars-t)) (filter pos?) vec))))
+        bars-t (count bars)]
+    (log/spy (->> (log/spy off-vec) (map #(- % bars-t)) (remove neg?) vec))))
 
 (defn set-auto-bars [{:keys [device-index param-index playmode] :as auto :or {playmode "PLAYMODE_LINEAR"}} bars]
   (ev "clj4rnx.device = clj4rnx.track:device(" (inc device-index) ")")
