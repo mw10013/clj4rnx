@@ -106,7 +106,6 @@
     [index (assoc off-vec index off-t)]))
 
 (defn set-notes [trk-idx pitch-f off-vec notes]
-  (log/spy ["set-notes" trk-idx off-vec])
   (ev "clj4rnx.track = clj4rnx.song:track(" trk-idx ")")
   (ev "clj4rnx.pattern_track = clj4rnx.pattern:track(" trk-idx ")")
   (ev "clj4rnx.pattern_track:clear()")
@@ -308,7 +307,9 @@
 1s 3s 2s 1s
 3s 1s 2s 3s
 1s 2s 3s 1s
-3s 2s 1s 3s")})
+3s 2s 1s 3s")
+           :steps-1 (parse "
+1 e 1 e 1")})
 
 (add-patr-f :grv-1-full (fn []
                           {:bd (parse "1 1 1 1")
@@ -332,16 +333,13 @@ e 4e e 4e e 4e e 4e")
 
 (def patrs*
      [
-;      {:patr-f (fn [] {:pad (parse "'(1w 1-w)")}) :bar-cnt 1}
-;      {:patr-f (fn [] {:pad (parse "'7")}) :bar-cnt 1}
-;      {:patr-f (fn [] {:pad (parse "'(1w. 4w.)")}) :bar-cnt 1}
-;      {:patr-f (fn [] {:bell (parse "4h")}) :bar-cnt 1}
+      {:patr-f (fn [] (merge (get-patr :bd)
+                            {:pad (apply step-seq step-all ((juxt :steps-1 :cloudburst) (get-patr :seeds)))
+                             :bass (step-seq step-index (parse "e 2e e 2e e 2e e 2e") (:cloudburst (get-patr :seeds)))}))
+       :bar-cnt 16}
 ;      {:patr-f (fn [] (merge (get-patr :bd)
 ;                            {:pad (:cloudburst (get-patr :seeds))})) :bar-cnt 16}
-      {:patr-f (fn [] {:pad (:cloudburst (get-patr :seeds))}) :bar-cnt 16}
-      {:patr-f (fn [] (merge (get-patr :bd)
-                            {:pad (apply step-seq step-index ((juxt :cloudburst-steps :cloudburst) (get-patr :seeds)))}))
-       :bar-cnt 16}
+      
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
 ;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
 ;      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
@@ -354,13 +352,12 @@ e 4e e 4e e 4e e 4e")
      (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
 
 (defn set-note-bars [trk-idx pitch-f note-f off-vec bars]
-  (log/spy ["set-note-bars" trk-idx off-vec])
   (let [off-vec (set-notes trk-idx pitch-f off-vec
                            (map (or note-f identity)
                                 (mapcat (fn [idx bar] (map #(update-in % [:t] (partial + idx)) bar))
                                         (iterate inc 0) bars)))
         bars-t (count bars)]
-    (log/spy (->> (log/spy off-vec) (map #(- % bars-t)) (remove neg?) vec))))
+    (->> off-vec (map #(- % bars-t)) (remove neg?) vec)))
 
 (defn set-auto-bars [{:keys [device-index param-index playmode] :as auto :or {playmode "PLAYMODE_LINEAR"}} bars]
   (ev "clj4rnx.device = clj4rnx.track:device(" (inc device-index) ")")
@@ -387,7 +384,6 @@ e 4e e 4e e 4e e 4e")
                (:tracks song))))
     (->> (:tracks song) (map-indexed vector)
          (reduce (fn [off-map [index {:keys [id automation note-f]}]]
-;                   (log/spy [id index off-map])
                    (doseq [auto automation] (set-auto-bars auto (take bar-cnt (-> auto :id m))))
                    (update-in off-map [id] (partial set-note-bars (inc index) deg-to-pitch note-f) (take bar-cnt (id m))))
                  off-map))))
