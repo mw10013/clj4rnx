@@ -176,13 +176,6 @@
                                           (assoc ctx :es [] :max-t (:t ctx)) x)]
                  (assoc new-ctx :t (:max-t new-ctx) :es (vec (concat (:es ctx) (sort #(compare (:t %1) (:t %2)) (:es new-ctx)))))))))
 
-; (to-es ['({:deg 1, :d 1/4} {:deg 3, :d 1/4}) {:deg 4, :d 1/4}])
-; (->> "1 3" normalize read-string eval to-e)
-; (->> "'(1 3)" normalize read-string eval to-e)
-; (->> "'(3) 4" normalize read-string eval to-e)
-; (->> "'(1 3) 4" normalize read-string eval to-e)
-; (->> "'(1 3) 4" normalize read-string eval to-e to-es)
-
 (defn- es-to-bars
   ([es] (es-to-bars nil es))
   ([bar-cnt es]
@@ -199,14 +192,6 @@
 (defn- parse
   ([s] (parse nil s))
   ([bar-cnt s] (->> s normalize read-string eval to-e to-es :es (es-to-bars bar-cnt) repeat (mapcat identity))))
-
-; (take 3 (parse 2 "1ww"))
-; (take 3 (parse "ww"))
-; (take 2 (parse "'(1 3 5) 6"))
-; (take 2 (parse "'(1w 3w 5w)"))
-; (->> "1wwww" normalize read-string eval to-e to-es :es (es-to-bars 2))
-; (take 2  (parse "'([1+h 2+h])"))
-; (take 1  (parse "'([1+h 2+h] 1w)"))
 
 (defn- step-all [step buf]
   (let [{:keys [t d]} (first step)]
@@ -248,46 +233,8 @@
                                                       (filter #(> (:d %) 0)))))]
           (cons b (step-seq ctx f (rest steps) (rest bars))))))))
 
-(defn- arp-index-seq [indexes octs]
-  "Returns seq of index oct pairs"
-  (cycle (apply concat ((juxt identity
-                              (constantly [[(first indexes) (inc (last octs))]])
-                              #(butlast (rseq (vec %)))) (for [oct octs index indexes] [index oct])))))
-
-; (take 25 (arp-index-seq [1 3 5] (range 3)))
-
-(defn- arp-seq
-  ([] (arp-seq {:octs (range 3)} (take 2 (step-seq (parse "1e 1e 1e 1e 1e") (parse "'(1w 3w 5w)")))))
-  ([ctx step-bars]
-     (lazy-seq
-      (when (seq step-bars)
-        (let [{b :b :as ctx}
-              (reduce (fn [{:keys [prev-cnt octs b] :as ctx} step]
-                        (let [cnt (count step)
-                              ctx (update-in ctx [:indexes] #(cond
-                                                              (zero? cnt) nil
-                                                              (= cnt prev-cnt) %
-                                                              :else (arp-index-seq (range cnt) octs)))
-                              [index oct] (first (:indexes ctx))
-                              ctx (update-in ctx [:indexes] next)]
-                          (conj ctx [:prev-cnt cnt] (when index [:b (conj (:b ctx) (assoc (nth step index) :oct oct))]))))
-                      (assoc ctx :b [])
-                      (first step-bars))]
-          (cons b (arp-seq ctx (rest step-bars))))))))
-
-; (take 2 (arp-seq))
-
-(def patr-fs* (ref {}))
-(defn add-patr-f [name f] (dosync (alter patr-fs* assoc name f)))
-(defn get-patr-f [name] (@patr-fs* name))
-(defn add-patr [name patr] (add-patr-f name (constantly patr)))
-(defn get-patr [name] ((get-patr-f name)))
-(defn drop-patr [n patr] (into {} (map #(assoc % 1 (drop n (get % 1))) patr)))
-
-; (demo)
-
-(add-patr :seeds
-          {:cloudburst (parse 16 "
+(def seeds*
+     {:cloudburst (parse 16 "
 '(4+w 2w 2-w)
 '([3+h 1+h] 1w 1-w) 
 '(2+w 7b-w 7b--w)
@@ -303,53 +250,34 @@
 '([2+h 3+ 4+] 7b-w 7b--w)
 '([3+h 1+h] 6-w 6--w)
 '(2+ww 2ww 2-ww)")
-           :cloudburst-steps (parse "
+      :cloudburst-steps (parse "
 1s 3s 2s 1s
 3s 1s 2s 3s
 1s 2s 3s 1s
 3s 2s 1s 3s")
-           :steps-1 (parse "
+      :steps-1 (parse "
 1 e 1 e 1")})
 
-(add-patr-f :grv-1-full (fn []
-                          {:bd (parse "1 1 1 1")
-                           :bd-vol (parse "1/4 1/2 3/4 1")
-                           :sd (parse "q 1 q 1")
-;                           :hh-c (parse "e 1e e 1e e 1e e 1e")
-;                           :hc (parse "1 1 1 1e 1e 1 1 1 1e s 1s")
-                           :bass- (parse "1+h0.45 {:a 1.25}  5+h1")
-                           :bass (parse "e 1+e e 1+e e 1+e e 1+e
-e 5e e 5e e 5e e 5e
-e 6e e 6e e 6e e 6e
-e 4e e 4e e 4e e 4e")
-                           :hov (parse "'(1q 5q)")
-                           :pad (parse "'(1w [1+h 2+h])
-'(1w [5h 6h])
-'(1w [6h 5h])
-'(1w [4h 5h])")
-                           }))
+(def grv-1*
+     {:bd (parse "1 1 1 1")
+      :bd-vol (parse "1/4 1/2 3/4 1")
+      :sd (parse "q 1 q 1")
+      :hh-c (parse "e 1e e 1e e 1e e 1e")
+;      :hc (parse "1 1 1 1e 1e 1 1 1 1e s 1s")
+      })
 
-(add-patr-f :bd #(select-keys ((get-patr-f :grv-1-full)) [:bd]))
+(def bass-1* {:bass (step-seq step-index (parse "e 2e e 2e e 2e e 2e") (:cloudburst seeds*))})
 
 (def patrs*
      [
-      {:patr-f (fn [] (merge (get-patr :bd)
-                            {:pad (apply step-seq step-all ((juxt :steps-1 :cloudburst) (get-patr :seeds)))
-                             :bass (step-seq step-index (parse "e 2e e 2e e 2e e 2e") (:cloudburst (get-patr :seeds)))}))
-       :bar-cnt 16}
-;      {:patr-f (fn [] (merge (get-patr :bd)
-;                            {:pad (:cloudburst (get-patr :seeds))})) :bar-cnt 16}
-      
-;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c]))  :bar-cnt 1}
-;      {:patr-f (fn [] (select-keys ((get-patr-f :grv-1-full)) [:bd :hh-c :sd])) :bar-cnt 1}
-;      {:patr-f (get-patr-f :grv-1-full) :bar-cnt 4}
+      {:patr (merge grv-1* bass-1*
+                    {:pad (apply step-seq step-all ((juxt :steps-1 :cloudburst) seeds*))}) :bar-cnt 16}
+      {:patr (merge grv-1* bass-1* {:pad (:cloudburst seeds*)}) :bar-cnt 16}
       ])
 
 (defn- deg-to-pitch
-  ([deg oct acc]
-     (deg-to-pitch 48 deg oct acc))
-  ([base deg oct acc]
-     (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
+  ([deg oct acc] (deg-to-pitch 48 deg oct acc))
+  ([base deg oct acc] (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
 
 (defn set-note-bars [trk-idx pitch-f note-f off-vec bars]
   (let [off-vec (set-notes trk-idx pitch-f off-vec
@@ -372,20 +300,13 @@ e 4e e 4e e 4e e 4e")
            (apply str)) \}))
 
 (defn set-patr [song idx off-map]
-  (let [{:keys [patr-f bar-cnt]} (-> song :patrs (get idx))
-        m (patr-f)]
+  (let [{:keys [patr bar-cnt]} (-> song :patrs (get idx))]
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
     (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
-    (comment (dorun
-              (map-indexed
-               (fn [index track]
-                 (set-note-bars (inc index) deg-to-pitch (-> track :note-f) (take bar-cnt (-> track :id m)))
-                 (doseq [auto (:automation track)] (set-auto-bars auto (take bar-cnt (-> auto :id m)))))
-               (:tracks song))))
     (->> (:tracks song) (map-indexed vector)
          (reduce (fn [off-map [index {:keys [id automation note-f]}]]
-                   (doseq [auto automation] (set-auto-bars auto (take bar-cnt (-> auto :id m))))
-                   (update-in off-map [id] (partial set-note-bars (inc index) deg-to-pitch note-f) (take bar-cnt (id m))))
+                   (doseq [auto automation] (set-auto-bars auto (take bar-cnt (-> auto :id patr))))
+                   (update-in off-map [id] (partial set-note-bars (inc index) deg-to-pitch note-f) (take bar-cnt (id patr))))
                  off-map))))
 
 (defn loop-patr [song idx]
@@ -395,10 +316,7 @@ e 4e e 4e e 4e e 4e")
   (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
 
 (defn- set-patrs [song]
-;(dotimes [n (-> song :patrs count)] (set-patr song n {}))
-  (reduce (fn [off-map index]
-            (set-patr song index off-map))
-          {} (range (-> song :patrs count))))
+  (reduce (fn [off-map index] (set-patr song index off-map)) {} (range (-> song :patrs count))))
 
 (defn demo []
   (def song*
