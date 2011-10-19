@@ -233,6 +233,12 @@
                                                       (filter #(> (:d %) 0)))))]
           (cons b (step-seq ctx f (rest steps) (rest bars))))))))
 
+(def patr-merge (partial merge-with (fn [val-in-result val-in-latter]
+                                      (if (fn? val-in-latter)
+                                        (if (fn? val-in-result) (comp val-in-latter val-in-result) (val-in-latter val-in-result))
+                                        val-in-latter))))
+; (select-keys (patr-merge  pre-patr* {:bars (parse 1 "1 1")}) [:bar-cnt])
+
 (def seeds*
      {:cloudburst (parse 16 "
 '(4+w 2w 2-w)
@@ -270,10 +276,21 @@
 
 (def patrs*
      [
-      {:patr (merge grv-1* bass-1*
-                    {:pad (apply step-seq step-all ((juxt :steps-1 :cloudburst) seeds*))}) :bar-cnt 16}
-      {:patr (merge grv-1* bass-1* {:pad (:cloudburst seeds*)}) :bar-cnt 16}
+      #_(-> grv-1* (select-keys [:bd]) (assoc :bar-cnt- 1))
+      (assoc (patr-merge grv-1* bass-1*)
+        :pad (apply step-seq step-all ((juxt :steps-1 :cloudburst) seeds*))
+        :bar-cnt 16)
+      (assoc (patr-merge grv-1* bass-1*)
+        :bell (apply step-seq step-index ((juxt :cloudburst-steps :cloudburst) seeds*))
+        :bar-cnt 16)
+      (assoc (patr-merge grv-1* bass-1* {:pad (:cloudburst seeds*)}) :bar-cnt 16)
       ])
+
+(def pre-patr*
+     {:bar-cnt 1})
+
+(def post-patr* {:bass (fn [bars] (map (fn [bar] (map #(update-in % [:oct] (fnil inc 0)) bar)) bars))})
+;(def post-patr* nil)
 
 (defn- deg-to-pitch
   ([deg oct acc] (deg-to-pitch 48 deg oct acc))
@@ -300,13 +317,15 @@
            (apply str)) \}))
 
 (defn set-patr [song idx off-map]
-  (let [{:keys [patr bar-cnt]} (-> song :patrs (get idx))]
+  (let [{:keys [ bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get idx)) post-patr*)
+        ]
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
     (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
     (->> (:tracks song) (map-indexed vector)
          (reduce (fn [off-map [index {:keys [id automation note-f]}]]
                    (doseq [auto automation] (set-auto-bars auto (take bar-cnt (-> auto :id patr))))
-                   (update-in off-map [id] (partial set-note-bars (inc index) deg-to-pitch note-f) (take bar-cnt (id patr))))
+                   (update-in off-map [id] (partial set-note-bars (inc index) deg-to-pitch note-f)
+                              (take bar-cnt (when-let [bars (id patr)] (when (seq? bars) bars)))))
                  off-map))))
 
 (defn loop-patr [song idx]
