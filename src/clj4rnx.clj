@@ -53,18 +53,19 @@
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time=1, value=0.5},{time=5.5, value=1},{time=8, value=0}}
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time = 1, value = 1}, {time = 5, value = 0}}
 
-(defn reset-instr [instr]
+(defn reset-instr [{:keys [id] :as instr}]
   (ev "clj4rnx.instrument = renoise.song():instrument(" (inc (:instr-idx instr)) ")")
   (ev "clj4rnx.instrument:clear()")
   (when (:sample-filename instr)
     (ev "clj4rnx.instrument:sample(1).sample_buffer:load_from('" (:sample-filename instr) "')")
-    (ev (str "clj4rnx.instrument.name = '" (-> :sample-filename instr io/file .getName) "'")))
+    (ev (str "clj4rnx.instrument.name = '" (str (name id) ": " (-> :sample-filename instr io/file .getName)) "'")))
   (if-not (:plugin-name instr)
     (ev "clj4rnx.instrument.plugin_properties:load_plugin('')")
     (do
       (ev "clj4rnx.plugin_properties = clj4rnx.instrument.plugin_properties")
       (ev "clj4rnx.plugin_properties:load_plugin('" (:plugin-name instr) "')")
-      (ev "clj4rnx.plugin_properties.plugin_device.active_preset = " (:preset instr)))))
+      (ev "clj4rnx.plugin_properties.plugin_device.active_preset = " (:preset instr))
+      (ev (str "clj4rnx.instrument.name =  '" (str (name id)) ": ' .. clj4rnx.instrument.name")))))
 
 (defn reset-song [song]
   (ev "clj4rnx.song = renoise.song()")
@@ -356,16 +357,6 @@
 (defn demo []
   (def song*
        {:bpm 140 
-        :instrs [{:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
-                 {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}
-                 {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}
-                 {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Open HH/VEC1 Cymbals  OH 001.wav"}
-                 {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}
-                 {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}
-                 {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
-                 {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 38}
-                 {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 32}
-                 ]
         :tracks [{:id :bd
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
                   :devices- ["Audio/Effects/    Native/Delay"]
