@@ -114,12 +114,13 @@
             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (inc (int (* off-t 4 *lpb*))) "):note_column(" (inc index) ")")
             (ev "clj4rnx.note_column.note_string = 'OFF'" ))
           off-vec))
-    (let [off-vec (reduce (fn [off-vec {:keys [t deg oct acc v d a] :as e :or {oct 0 v 3/4 acc 0 a 1}}] 
+  (let [off-vec (reduce (fn [off-vec {:keys [t deg oct acc v d a] :as e :or {oct 0 v 3/4 acc 0 a 1}}]
+                          (log/spy e)
                           (let [l (inc (int (* t 4 *lpb*)))
                                 [note-col off-vec] (note-col t (+ t (* d a)) off-vec)
                                 note-col (inc note-col)]
                             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" l "):note_column(" note-col ")")
-                            (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct acc))
+                            (ev "clj4rnx.note_column.note_value = " (log/spy (pitch-f deg oct acc)))
                             (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
                             (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
                             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (int (+  l (* d 4 *lpb* a))) "):note_column(" note-col ")")
@@ -193,18 +194,19 @@
   ([s] (parse nil s))
   ([bar-cnt s] (->> s normalize read-string eval to-e to-es :es (es-to-bars bar-cnt) repeat (mapcat identity))))
 
-(defn- step-all [step buf]
-  (let [{:keys [t d]} (first step)]
-    (map #(assoc % :t t :d d) buf)))
+(defn- step-all [step buf] (let [{:keys [t d]} (first step)] (map #(assoc % :t t :d d) buf)))
 
 ; (step-all [{:t 1/4 :d 1/4}] '({:t 0, :deg 1, :d 1/2} {:t 0, :deg 5, :d 1/2}))
 
-(defn- step-index [step buf]
-  (let [buf (sort-by #(+ (*  (get % :oct 0) 12) (:deg %)) > buf)]
-    (reduce (fn [coll index]
-              (if-let [n (nth buf (dec (:deg index)) nil)]
-                (conj coll (conj n [:t (:t index)] [:d (:d index)] (if (:oct index) [:oct (:oct index)])))
-                coll)) [] step)))
+(defn- step-index
+  ([step buf] (step-index > step buf))
+  ([comp step buf] (let [buf (sort-by #(+ (*  (:oct % 0) 12) (:deg %)) comp buf)]
+                     (reduce (fn [coll index]
+                               (if-let [n (nth buf (dec (:deg index)) nil)]
+                                 (conj coll (conj n [:t (:t index)] [:d (:d index)]
+                                                  #_(if (:oct index) [:oct (:oct index)])
+                                                  (if (:oct index) [:oct (+ (:oct n 0) (:oct index))])))
+                                 coll)) [] step))))
 
 ; (take 2 (step-seq step-index(parse "1e 2e 2-e 1") (parse "'(1h 5h)")))
 ; (step-index [{:t 1/2 :deg 2 :d 1/4}] [{:t 0 :deg 2 :d 1} {:t 0 :deg 22 :d 1}])
@@ -237,7 +239,16 @@
                                       (if (fn? val-in-latter)
                                         (if (fn? val-in-result) (comp val-in-latter val-in-result) (val-in-latter val-in-result))
                                         val-in-latter))))
-; (select-keys (patr-merge  pre-patr* {:bars (parse 1 "1 1")}) [:bar-cnt])
+
+(def grv-1*
+     {:bd (parse "1 1 1 1")
+      :bd-vol (parse "1/4 1/2 3/4 1")
+      :sd (parse "q 1 q 1")
+      :hh-c (parse "e 1e e 1e e 1e e 1e")
+;      :hc (parse "1 1 1 1e 1e 1 1 1 1e s 1s")
+      })
+
+(def bass-1* {:bass (step-seq step-index (parse "e 2e e 2e e 2e e 2e") (:cloudburst seeds*))})
 
 (def seeds*
      {:cloudburst (parse 16 "
@@ -261,36 +272,42 @@
 3s 1s 2s 3s
 1s 2s 3s 1s
 3s 2s 1s 3s")
+      :chords-1 (parse "
+'(6-w 1+w 3+w) '(6-w 2+w 4+w) '(5-w 7w 2+w) '(1w 5w 3+w)
+'(3w 5w 1+w) '(4w 6w 1+w) '(5-w 7w 2+w) '(1w 5w 3+w)")
       :steps-1 (parse "
-1 e 1 e 1")})
-
-(def grv-1*
-     {:bd (parse "1 1 1 1")
-      :bd-vol (parse "1/4 1/2 3/4 1")
-      :sd (parse "q 1 q 1")
-      :hh-c (parse "e 1e e 1e e 1e e 1e")
-;      :hc (parse "1 1 1 1e 1e 1 1 1 1e s 1s")
+1e 2e e 1e 2e e 1e 2e")
       })
-
-(def bass-1* {:bass (step-seq step-index (parse "e 2e e 2e e 2e e 2e") (:cloudburst seeds*))})
 
 (def patrs*
      [
+      {:bass (step-seq (partial step-index <) (parse (apply str (repeat 4 "e 1e e 1e "))) (:chords-1 seeds*))
+       :bell (step-seq (partial step-index >) (:steps-1 seeds*) (:chords-1 seeds*))
+;       :pad (:chords-1 seeds*)
+       :bar-cnt 8}
+      #_{:bass (step-seq (partial step-index <) (parse (apply str (repeat 4 "e 1e "))) (:cloudburst seeds*)) :pad (:cloudburst seeds*) :bar-cnt 16}
       #_(-> grv-1* (select-keys [:bd]) (assoc :bar-cnt- 1))
-      (assoc (patr-merge grv-1* bass-1*)
+      #_(assoc (patr-merge grv-1* bass-1*)
         :pad (apply step-seq step-all ((juxt :steps-1 :cloudburst) seeds*))
         :bar-cnt 16)
-      (assoc (patr-merge grv-1* bass-1*)
+      #_(assoc (patr-merge grv-1* bass-1*)
         :bell (apply step-seq step-index ((juxt :cloudburst-steps :cloudburst) seeds*))
         :bar-cnt 16)
-      (assoc (patr-merge grv-1* bass-1* {:pad (:cloudburst seeds*)}) :bar-cnt 16)
+      #_(assoc (patr-merge grv-1* bass-1* {:pad (:cloudburst seeds*)}) :bar-cnt 16)
       ])
 
 (def pre-patr*
      {:bar-cnt 1})
 
-(def post-patr* {:bass (fn [bars] (map (fn [bar] (map #(update-in % [:oct] (fnil inc 0)) bar)) bars))})
-;(def post-patr* nil)
+(def post-patr* {:bass-- (fn [bars] (map (fn [bar] (map #(update-in % [:oct] (fnil inc 0)) bar)) bars))
+                 :bass- (fn [bars] (map (fn [bar] (map (fn [n]
+                                                      (assoc n :oct 4)
+                                                      #_(if-let [oct (:oct n)]
+                                                        (cond
+                                                         (<= oct 3) (assoc n :oct 4)
+                                                         (>= oct 5) (assoc n :oct 4)
+                                                         :else n)
+                                                        n))  bar)) bars))})
 
 (defn- deg-to-pitch
   ([deg oct acc] (deg-to-pitch 48 deg oct acc))
@@ -329,7 +346,7 @@
                  off-map))))
 
 (defn loop-patr [song idx]
-  (set-patr song idx)
+  (set-patr song idx {})
   (ev "clj4rnx.song.selected_sequence_index = " (inc idx))
   (ev "clj4rnx.song.transport.loop_pattern = true")
   (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
@@ -348,7 +365,7 @@
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 38}
-                 {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 39}
+                 {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 32}
                  ]
         :tracks [{:id :bd
                   :devices- ["Audio/Effects/    Native/Delay"]
@@ -359,7 +376,7 @@
                  {:id :hh-c}
                  {:id :hh-o}
                  {:id :hc}
-                 {:id :bass :note-f #(update-in % [:oct] (fnil (partial + 0) 0))}
+                 {:id :bass :note-f #(update-in % [:oct] (fnil (partial + 1) 0))}
                  {:id :hov} 
                  {:id :bell}
                  {:id :pad}
@@ -370,6 +387,4 @@
   (set-patrs song*))
 
 (defonce *interactive* false)
-(when *interactive* (loop-patr song* 0))
-
-(demo)
+(if *interactive* (loop-patr song* 0) (demo))
