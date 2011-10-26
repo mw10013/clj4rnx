@@ -10,7 +10,7 @@
 
 (def *lpb* 4)
 
-(osc/osc-debug true)
+(osc/osc-debug false)
 (defonce *client* (osc/osc-client "127.0.0.1" 8000))
 
 (defn set-log-level!
@@ -53,18 +53,18 @@
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time=1, value=0.5},{time=5.5, value=1},{time=8, value=0}}
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time = 1, value = 1}, {time = 5, value = 0}}
 
-(defn reset-instr [song]
-  (ev "clj4rnx.instrument = renoise.song():instrument(" (inc (:instr-idx song)) ")")
+(defn reset-instr [instr]
+  (ev "clj4rnx.instrument = renoise.song():instrument(" (inc (:instr-idx instr)) ")")
   (ev "clj4rnx.instrument:clear()")
-  (when (:sample-filename song)
-    (ev "clj4rnx.instrument:sample(1).sample_buffer:load_from('" (:sample-filename song) "')")
-    (ev (str "clj4rnx.instrument.name = '" (-> :sample-filename song io/file .getName) "'")))
-  (if-not (:plugin-name song)
+  (when (:sample-filename instr)
+    (ev "clj4rnx.instrument:sample(1).sample_buffer:load_from('" (:sample-filename instr) "')")
+    (ev (str "clj4rnx.instrument.name = '" (-> :sample-filename instr io/file .getName) "'")))
+  (if-not (:plugin-name instr)
     (ev "clj4rnx.instrument.plugin_properties:load_plugin('')")
     (do
       (ev "clj4rnx.plugin_properties = clj4rnx.instrument.plugin_properties")
-      (ev "clj4rnx.plugin_properties:load_plugin('" (:plugin-name song) "')")
-      (ev "clj4rnx.plugin_properties.plugin_device.active_preset = " (:preset song)))))
+      (ev "clj4rnx.plugin_properties:load_plugin('" (:plugin-name instr) "')")
+      (ev "clj4rnx.plugin_properties.plugin_device.active_preset = " (:preset instr)))))
 
 (defn reset-song [song]
   (ev "clj4rnx.song = renoise.song()")
@@ -73,29 +73,31 @@
   (ev "clj4rnx.sequencer = clj4rnx.song.sequencer")
   (doseq [_ (range 25)]
     (ev "clj4rnx.sequencer:delete_sequence_at(" 1 ")")
-    (ev "clj4rnx.song:delete_track_at(" 1 ")")
-    (ev "clj4rnx.song:delete_instrument_at(" 1 ")"))
+    (ev "clj4rnx.song:delete_instrument_at(" 1 ")")
+    (ev "clj4rnx.song:delete_track_at(" 1 ")"))
   
   (doseq [idx (range 1 (-> song :patrs count inc))]
-    (when-not (= idx 1)
-      (ev "clj4rnx.sequencer:insert_sequence_at(" idx ", " idx ")"))
+    (when-not (= idx 1) (ev "clj4rnx.sequencer:insert_sequence_at(" idx ", " idx ")"))
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" idx ")")
     (ev "clj4rnx.pattern:clear()"))
 
-  (doseq [_ (range (-> song :tracks count))]
+  (doseq [idx (range (-> song :tracks count))]
+    (when-not (= idx 1)) (ev "clj4rnx.song:insert_instrument_at(" 1 ")")
     (ev "clj4rnx.track = clj4rnx.song:insert_track_at(" 1 ")"))
 
   (dotimes [n (-> song :tracks count)]
-          (let [{:keys [id index devices]} (-> song :tracks (get n))]
-            (ev "clj4rnx.track = clj4rnx.song:track(" (inc n) ")")
-            (ev "clj4rnx.track.name = '" (name id) "'")
-            (dorun (map-indexed (fn [device-idx device-name]
-                                  (ev "clj4rnx.track:insert_device_at('" device-name "', " (+ device-idx 2) ")"))
-                                devices))))
+    (let [{:keys [id instr devices]} (-> song :tracks (get n))]
+      (ev "clj4rnx.track = clj4rnx.song:track(" (inc n) ")")
+      (ev "clj4rnx.track.name = '" (name id) "'")
+      (reset-instr (assoc instr :id id :instr-idx n))
+      (dorun (map-indexed (fn [device-idx device-name]
+                            (ev "clj4rnx.track:insert_device_at('" device-name "', " (+ device-idx 2) ")"))
+                          devices))))
 
-  (dotimes [_ (-> song :instrs count dec)]
-    (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
-  (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs song))))
+  (comment (dotimes [_ (-> song :instrs count dec)]
+             (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
+           (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs song))))
+  )
 
 (defn- note-col [t off-t off-vec]
   (let [index (or  (->> off-vec
@@ -115,12 +117,11 @@
             (ev "clj4rnx.note_column.note_string = 'OFF'" ))
           off-vec))
   (let [off-vec (reduce (fn [off-vec {:keys [t deg oct acc v d a] :as e :or {oct 0 v 3/4 acc 0 a 1}}]
-                          (log/spy e)
                           (let [l (inc (int (* t 4 *lpb*)))
                                 [note-col off-vec] (note-col t (+ t (* d a)) off-vec)
                                 note-col (inc note-col)]
                             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" l "):note_column(" note-col ")")
-                            (ev "clj4rnx.note_column.note_value = " (log/spy (pitch-f deg oct acc)))
+                            (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct acc))
                             (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
                             (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
                             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (int (+  l (* d 4 *lpb* a))) "):note_column(" note-col ")")
@@ -248,8 +249,6 @@
 ;      :hc (parse "1 1 1 1e 1e 1 1 1 1e s 1s")
       })
 
-(def bass-1* {:bass (step-seq step-index (parse "e 2e e 2e e 2e e 2e") (:cloudburst seeds*))})
-
 (def seeds*
      {:cloudburst (parse 16 "
 '(4+w 2w 2-w)
@@ -368,18 +367,27 @@
                  {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 32}
                  ]
         :tracks [{:id :bd
+                  :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
                   :devices- ["Audio/Effects/    Native/Delay"]
                   :automation [{:id :bd-vol :device-index 0 :param-index 1}
 ;                                {:id :bd-pan :device-index 0 :param-index 0}
                                ]}
-                 {:id :sd}
-                 {:id :hh-c}
-                 {:id :hh-o}
-                 {:id :hc}
-                 {:id :bass :note-f #(update-in % [:oct] (fnil (partial + 1) 0))}
-                 {:id :hov} 
-                 {:id :bell}
-                 {:id :pad}
+                 {:id :sd
+                  :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}}
+                 {:id :hh-c
+                  :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}}
+                 {:id :hh-o
+                  :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Open HH/VEC1 Cymbals  OH 001.wav"}}
+                 {:id :hc
+                  :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}}
+                 {:id :bass :note-f #(update-in % [:oct] (fnil (partial + 1) 0))
+                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}}
+                 {:id :hov
+                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}} 
+                 {:id :bell
+                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 38}}
+                 {:id :pad
+                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 32}}
                  ]
         :patrs patrs*
         })
