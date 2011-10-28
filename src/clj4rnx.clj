@@ -134,7 +134,8 @@
           " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")
       off-vec))
 
-(def e-re* #"(([whqest\.]+)|([\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?)")
+(def e-re* #"(([whqest\.]+)|(-?[\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?)")
+; (re-find e-re* "-1-")
 ; (re-find e-re* "1#+hq")
 ; (map #(re-find e-re* %) ["1bbet {:b :abacab}" "1#0.5{:a 2}" "1b""1/4" "0.5" "1" "2+" "7--" "e"])
 
@@ -196,15 +197,17 @@
   ([s] (parse nil s))
   ([bar-cnt s] (->> s normalize read-string eval to-e to-es :es (es-to-bars bar-cnt) repeat (mapcat identity))))
 
+; (take 2 (parse "'(4 3 2 1)"))
+
 (defn- step-all [step buf] (let [{:keys [t d]} (first step)] (map #(assoc % :t t :d d) buf)))
 
 ; (step-all [{:t 1/4 :d 1/4}] '({:t 0, :deg 1, :d 1/2} {:t 0, :deg 5, :d 1/2}))
 
 (defn- step-index
-  ([step buf] (step-index > step buf))
-  ([comp step buf] (let [buf (sort-by #(+ (*  (:oct % 0) 12) (:deg %)) comp buf)]
-                     (reduce (fn [coll index]
-                               (if-let [n (nth buf (dec (:deg index)) nil)]
+  ([step buf] (step-index nil step buf))
+  ([comp step buf] (let [buf (if comp (sort-by #(+ (* (:oct % 0) 12) (:deg %)) comp buf) buf)]
+                     (reduce (fn [coll {:keys [deg] :as index}]
+                               (if-let [n (nth buf (if (pos? deg) (dec deg) (+ (count buf) deg)) nil)]
                                  (conj coll (conj n [:t (:t index)] [:d (:d index)]
                                                   #_(if (:oct index) [:oct (:oct index)])
                                                   (if (:oct index) [:oct (+ (:oct n 0) (:oct index))])))
@@ -281,8 +284,10 @@
 
 (def patrs*
      [
-      {:bass (step-seq (partial step-index <) (parse (apply str (repeat 4 "e 1e e 1e "))) (:chords-1 seeds*))
-       :bell (step-seq (partial step-index >) (:steps-1 seeds*) (:chords-1 seeds*))
+      {;:bass (step-seq (partial step-index <) (parse (apply str (repeat 4 "e 1e e 1e "))) (:chords-1 seeds*))
+;       :ld (step-seq (partial step-index >) (:steps-1 seeds*) (:chords-1 seeds*))
+;       :pad (step-seq (partial step-index >) (parse "1s 1s '(1e 2e)") (:chords-1 seeds*))
+       :pad (step-seq (partial step-index nil) (parse "1s -1s '(1e 2e)") (parse "'(1w 3w 5w 6w 7b-w)"))
 ;       :pad (:chords-1 seeds*)
        :bar-cnt 8}
       #_{:bass (step-seq (partial step-index <) (parse (apply str (repeat 4 "e 1e "))) (:cloudburst seeds*)) :pad (:cloudburst seeds*) :bar-cnt 16}
@@ -291,7 +296,7 @@
         :pad (apply step-seq step-all ((juxt :steps-1 :cloudburst) seeds*))
         :bar-cnt 16)
       #_(assoc (patr-merge grv-1* bass-1*)
-        :bell (apply step-seq step-index ((juxt :cloudburst-steps :cloudburst) seeds*))
+        :key (apply step-seq step-index ((juxt :cloudburst-steps :cloudburst) seeds*))
         :bar-cnt 16)
       #_(assoc (patr-merge grv-1* bass-1* {:pad (:cloudburst seeds*)}) :bar-cnt 16)
       ])
@@ -357,7 +362,16 @@
 (defn demo []
   (def song*
        {:bpm 140 
-        :tracks [{:id :bd
+        :tracks [
+                 {:id :pad
+                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 32}}
+                 {:id :bass :note-f #(update-in % [:oct] (fnil (partial + 1) 0))
+                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}}
+                 {:id :key
+                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 27}}
+                 {:id :ld
+                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 46}}
+                 {:id :bd
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
                   :devices- ["Audio/Effects/    Native/Delay"]
                   :automation [{:id :bd-vol :device-index 0 :param-index 1}
@@ -371,14 +385,8 @@
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Open HH/VEC1 Cymbals  OH 001.wav"}}
                  {:id :hc
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}}
-                 {:id :bass :note-f #(update-in % [:oct] (fnil (partial + 1) 0))
-                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}}
                  {:id :hov
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}} 
-                 {:id :bell
-                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 38}}
-                 {:id :pad
-                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 32}}
                  ]
         :patrs patrs*
         })
