@@ -199,6 +199,11 @@
 
 ; (take 2 (parse "'(4 3 2 1)"))
 
+(def patr-merge (partial merge-with (fn [val-in-result val-in-latter]
+                                      (if (fn? val-in-latter)
+                                        (if (fn? val-in-result) (comp val-in-latter val-in-result) (val-in-latter val-in-result))
+                                        val-in-latter))))
+
 (defn- step-all [step buf] (let [{:keys [t d]} (first step)] (map #(assoc % :t t :d d) buf)))
 
 ; (step-all [{:t 1/4 :d 1/4}] '({:t 0, :deg 1, :d 1/2} {:t 0, :deg 5, :d 1/2}))
@@ -240,14 +245,66 @@
                                                       (filter #(> (:d %) 0)))))]
           (cons b (step-seq ctx f (rest steps) (rest bars))))))))
 
-(def patr-merge (partial merge-with (fn [val-in-result val-in-latter]
-                                      (if (fn? val-in-latter)
-                                        (if (fn? val-in-result) (comp val-in-latter val-in-result) (val-in-latter val-in-result))
-                                        val-in-latter))))
+(defn- deg-to-pitch
+  ([deg oct acc] (deg-to-pitch 48 deg oct acc))
+  ([base deg oct acc] (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
+
+(defn set-note-bars [trk-idx pitch-f note-f off-vec bars]
+  (let [off-vec (set-notes trk-idx pitch-f off-vec
+                           (map (or note-f identity)
+                                (mapcat (fn [idx bar] (map #(update-in % [:t] (partial + idx)) bar))
+                                        (iterate inc 0) bars)))
+        bars-t (count bars)]
+    (->> off-vec (map #(- % bars-t)) (remove neg?) vec)))
+
+(defn set-auto-bars [{:keys [device-index param-index playmode] :as auto :or {playmode "PLAYMODE_LINEAR"}} bars]
+  (ev "clj4rnx.device = clj4rnx.track:device(" (inc device-index) ")")
+  (ev "clj4rnx.parameter = clj4rnx.device:parameter(" (inc (:param-index auto)) ")")
+  (ev "clj4rnx.automation = clj4rnx.pattern_track:create_automation(clj4rnx.parameter)")
+  (ev "clj4rnx.automation.playmode = renoise.PatternTrackAutomation." playmode)
+  (ev "clj4rnx.automation.points = {"
+      (->> bars
+           (mapcat (fn [idx bar] (map #(assoc %1 :t (-> %1 :t (+ idx) (* 4 *lpb*) int)) bar)) (iterate inc 0))
+           (map #(str "{time=" (->  % :t inc) ", value=" (double (:deg %)) \}))
+           (interpose \,)
+           (apply str)) \}))
+
+(def pre-patr*
+     {:bar-cnt 1})
+
+(def post-patr* {:bs-- (fn [bars] (map (fn [bar] (map #(update-in % [:oct] (fnil inc 0)) bar)) bars))
+                 :bs- (fn [bars] (map (fn [bar] (map (fn [n]
+                                                      (assoc n :oct 4)
+                                                      #_(if-let [oct (:oct n)]
+                                                        (cond
+                                                         (<= oct 3) (assoc n :oct 4)
+                                                         (>= oct 5) (assoc n :oct 4)
+                                                         :else n)
+                                                        n))  bar)) bars))})
+(defn set-patr [song idx off-map]
+  (let [{:keys [ bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get idx)) post-patr*)
+        ]
+    (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
+    (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
+    (->> (:tracks song) (map-indexed vector)
+         (reduce (fn [off-map [index {:keys [id automation note-f]}]]
+                   (doseq [auto automation] (set-auto-bars auto (take bar-cnt (-> auto :id patr))))
+                   (update-in off-map [id] (partial set-note-bars (inc index) deg-to-pitch note-f)
+                              (take bar-cnt (when-let [bars (id patr)] (when (seq? bars) bars)))))
+                 off-map))))
+
+(defn loop-patr [song idx]
+  (set-patr song idx {})
+  (ev "clj4rnx.song.selected_sequence_index = " (inc idx))
+  (ev "clj4rnx.song.transport.loop_pattern = true")
+  (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
+
+(defn- set-patrs [song]
+  (reduce (fn [off-map index] (set-patr song index off-map)) {} (range (-> song :patrs count))))
 
 (def grv-1*
      {:bd (parse "1 1 1 1")
-      :bd-vol (parse "1/4 1/2 3/4 1")
+;      :bd-vol (parse "1/4 1/2 3/4 1")
       :sd (parse "q 1 q 1")
       :hh-c (parse "e 1e e 1e e 1e e 1e")
 ;      :hc (parse "1 1 1 1e 1e 1 1 1 1e s 1s")
@@ -280,97 +337,51 @@
 '(3w 5w 1+w) '(4w 6w 1+w) '(5-w 7w 2+w) '(1w 5w 3+w)")
       :steps-1 (parse "
 1e 2e e 1e 2e e 1e 2e")
+      :bs-1 (parse "
+'(6-w 1w 5-w) '(2w 4w 1w) '(5-w 7w 7w) '(1w 3w 7b-w)")
       })
 
 (def patrs*
      [
-      {;:bass (step-seq (partial step-index <) (parse (apply str (repeat 4 "e 1e e 1e "))) (:chords-1 seeds*))
+      {:bs (parse "1e s 1e s 1s s 1e s 1e s 1s s")
+       :bd (parse "1 1 1 1") :hc (parse "q 1 q 1")
+       :hh-c (parse "1s 1s s 1s 1s 1s s 1s 1s 1s s 1s 1s 1s s 1s ")
+       :hh-o (parse "e 1 1 1 1")
+;       :ride (parse "1e 1e 1e 1e 1e 1e 1e 1e")
+       :crash (parse 2 "1w") :bar-cnt 8}
+      #_(select-keys grv-1* [:bd])
+      #_(select-keys grv-1* [:bd :sd])
+      #_grv-1*
+      #_(patr-merge grv-1* {:bs (parse "
+e 6-e e 6-e e 6-e e 6-e
+e 2e e 2e e 2e e 2e
+e 7-e e 7-e e 7-e e 7-e
+e 1e e 1e e 1e e 1e
+") :bar-cnt 8})
+      #_(patr-merge grv-1* {:bs (step-seq step-index (parse "1e 1e 1s 1s s -1s 1e 2e 1s 1s") (:bs-1 seeds*)) :bar-cnt 8})
+      #_{:bs (step-seq step-index (parse "1e 1e 1s 1s s -1s 1e 2e 1s 1s") (:bs-1 seeds*))
 ;       :ld (step-seq (partial step-index >) (:steps-1 seeds*) (:chords-1 seeds*))
-;       :pad (step-seq (partial step-index >) (parse "1s 1s '(1e 2e)") (:chords-1 seeds*))
-       :pad (step-seq (partial step-index nil) (parse "1s -1s '(1e 2e)") (parse "'(1w 3w 5w 6w 7b-w)"))
-;       :pad (:chords-1 seeds*)
+;       :pd (step-seq (partial step-index >) (parse "1s 1s '(1e 2e)") (:chords-1 seeds*))
+;       :pd (step-seq (partial step-index nil) (parse "1s -1s '(1e 2e)") (parse "'(1w 3w 5w 6w 7b-w)"))
+;       :pd (:chords-1 seeds*)
        :bar-cnt 8}
-      #_{:bass (step-seq (partial step-index <) (parse (apply str (repeat 4 "e 1e "))) (:cloudburst seeds*)) :pad (:cloudburst seeds*) :bar-cnt 16}
+      #_{:bs (step-seq (partial step-index <) (parse "1e 1e 1s 1s s 1s 1e 1e 1s 1s") (:cloudburst seeds*)) :pd (:cloudburst seeds*) :bar-cnt 16}
       #_(-> grv-1* (select-keys [:bd]) (assoc :bar-cnt- 1))
-      #_(assoc (patr-merge grv-1* bass-1*)
-        :pad (apply step-seq step-all ((juxt :steps-1 :cloudburst) seeds*))
+      #_(assoc (patr-merge grv-1* bs-1*)
+        :pd (apply step-seq step-all ((juxt :steps-1 :cloudburst) seeds*))
         :bar-cnt 16)
-      #_(assoc (patr-merge grv-1* bass-1*)
+      #_(assoc (patr-merge grv-1* bs-1*)
         :key (apply step-seq step-index ((juxt :cloudburst-steps :cloudburst) seeds*))
         :bar-cnt 16)
-      #_(assoc (patr-merge grv-1* bass-1* {:pad (:cloudburst seeds*)}) :bar-cnt 16)
+      #_(assoc (patr-merge grv-1* bs-1* {:pd (:cloudburst seeds*)}) :bar-cnt 16)
       ])
-
-(def pre-patr*
-     {:bar-cnt 1})
-
-(def post-patr* {:bass-- (fn [bars] (map (fn [bar] (map #(update-in % [:oct] (fnil inc 0)) bar)) bars))
-                 :bass- (fn [bars] (map (fn [bar] (map (fn [n]
-                                                      (assoc n :oct 4)
-                                                      #_(if-let [oct (:oct n)]
-                                                        (cond
-                                                         (<= oct 3) (assoc n :oct 4)
-                                                         (>= oct 5) (assoc n :oct 4)
-                                                         :else n)
-                                                        n))  bar)) bars))})
-
-(defn- deg-to-pitch
-  ([deg oct acc] (deg-to-pitch 48 deg oct acc))
-  ([base deg oct acc] (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
-
-(defn set-note-bars [trk-idx pitch-f note-f off-vec bars]
-  (let [off-vec (set-notes trk-idx pitch-f off-vec
-                           (map (or note-f identity)
-                                (mapcat (fn [idx bar] (map #(update-in % [:t] (partial + idx)) bar))
-                                        (iterate inc 0) bars)))
-        bars-t (count bars)]
-    (->> off-vec (map #(- % bars-t)) (remove neg?) vec)))
-
-(defn set-auto-bars [{:keys [device-index param-index playmode] :as auto :or {playmode "PLAYMODE_LINEAR"}} bars]
-  (ev "clj4rnx.device = clj4rnx.track:device(" (inc device-index) ")")
-  (ev "clj4rnx.parameter = clj4rnx.device:parameter(" (inc (:param-index auto)) ")")
-  (ev "clj4rnx.automation = clj4rnx.pattern_track:create_automation(clj4rnx.parameter)")
-  (ev "clj4rnx.automation.playmode = renoise.PatternTrackAutomation." playmode)
-  (ev "clj4rnx.automation.points = {"
-      (->> bars
-           (mapcat (fn [idx bar] (map #(assoc %1 :t (-> %1 :t (+ idx) (* 4 *lpb*) int)) bar)) (iterate inc 0))
-           (map #(str "{time=" (->  % :t inc) ", value=" (double (:deg %)) \}))
-           (interpose \,)
-           (apply str)) \}))
-
-(defn set-patr [song idx off-map]
-  (let [{:keys [ bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get idx)) post-patr*)
-        ]
-    (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
-    (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
-    (->> (:tracks song) (map-indexed vector)
-         (reduce (fn [off-map [index {:keys [id automation note-f]}]]
-                   (doseq [auto automation] (set-auto-bars auto (take bar-cnt (-> auto :id patr))))
-                   (update-in off-map [id] (partial set-note-bars (inc index) deg-to-pitch note-f)
-                              (take bar-cnt (when-let [bars (id patr)] (when (seq? bars) bars)))))
-                 off-map))))
-
-(defn loop-patr [song idx]
-  (set-patr song idx {})
-  (ev "clj4rnx.song.selected_sequence_index = " (inc idx))
-  (ev "clj4rnx.song.transport.loop_pattern = true")
-  (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
-
-(defn- set-patrs [song]
-  (reduce (fn [off-map index] (set-patr song index off-map)) {} (range (-> song :patrs count))))
 
 (defn demo []
   (def song*
        {:bpm 140 
         :tracks [
-                 {:id :pad
-                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 32}}
-                 {:id :bass :note-f #(update-in % [:oct] (fnil (partial + 1) 0))
+                 {:id :bs :note-f- #(update-in % [:oct] (fnil (partial + 1) 0))
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}}
-                 {:id :key
-                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 27}}
-                 {:id :ld
-                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 46}}
                  {:id :bd
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
                   :devices- ["Audio/Effects/    Native/Delay"]
@@ -379,12 +390,22 @@
                                ]}
                  {:id :sd
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}}
+                 {:id :hc
+                  :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}}
                  {:id :hh-c
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}}
                  {:id :hh-o
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Open HH/VEC1 Cymbals  OH 001.wav"}}
-                 {:id :hc
-                  :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}}
+                 {:id :ride
+                  :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Ride/VEC1 Cymbals RD 05.wav"}}
+                 {:id :crash
+                  :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Crash/VEC1 Cymbals CR 001.wav"}}
+                 {:id :pd
+                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 32}}                 
+                 {:id :key
+                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 27}}
+                 {:id :ld
+                  :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 46}}                 
                  {:id :hov
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}} 
                  ]
