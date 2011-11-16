@@ -53,19 +53,16 @@
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time=1, value=0.5},{time=5.5, value=1},{time=8, value=0}}
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time = 1, value = 1}, {time = 5, value = 0}}
 
-(defn reset-instr [{:keys [id] :as instr}]
-  (ev "clj4rnx.instrument = renoise.song():instrument(" (inc (:instr-idx instr)) ")")
-  (ev "clj4rnx.instrument:clear()")
+(defn reset-instr [{:keys [id instr-idx] :as instr}]
+  (ev "clj4rnx.instrument = (renoise.song().instruments[" (inc instr-idx) "] or renoise.song():insert_instrument_at(" (inc instr-idx) "))")
   (when (:sample-filename instr)
     (ev "clj4rnx.instrument:sample(1).sample_buffer:load_from('" (:sample-filename instr) "')")
     (ev (str "clj4rnx.instrument.name = '" (str (name id) ": " (-> :sample-filename instr io/file .getName)) "'")))
-  (if-not (:plugin-name instr)
-    (ev "clj4rnx.instrument.plugin_properties:load_plugin('')")
-    (do
-      (ev "clj4rnx.plugin_properties = clj4rnx.instrument.plugin_properties")
+  (when (:plugin-name instr)
+    (ev "clj4rnx.plugin_properties = clj4rnx.instrument.plugin_properties")
       (ev "clj4rnx.plugin_properties:load_plugin('" (:plugin-name instr) "')")
       (ev "clj4rnx.plugin_properties.plugin_device.active_preset = " (:preset instr))
-      (ev (str "clj4rnx.instrument.name =  '" (str (name id)) ": ' .. clj4rnx.instrument.name")))))
+      (ev (str "clj4rnx.instrument.name =  '" (str (name id)) ": ' .. clj4rnx.instrument.name"))))
 
 (defn reset-song [song]
   (ev "clj4rnx.song = renoise.song()")
@@ -74,7 +71,6 @@
   (ev "clj4rnx.sequencer = clj4rnx.song.sequencer")
   (doseq [_ (range 25)]
     (ev "clj4rnx.sequencer:delete_sequence_at(" 1 ")")
-    (ev "clj4rnx.song:delete_instrument_at(" 1 ")")
     (ev "clj4rnx.song:delete_track_at(" 1 ")"))
   
   (doseq [idx (range 1 (-> song :patrs count inc))]
@@ -83,7 +79,6 @@
     (ev "clj4rnx.pattern:clear()"))
 
   (doseq [idx (range (-> song :tracks count))]
-    (when-not (= idx 1)) (ev "clj4rnx.song:insert_instrument_at(" 1 ")")
     (ev "clj4rnx.track = clj4rnx.song:insert_track_at(" 1 ")"))
 
   (dotimes [n (-> song :tracks count)]
@@ -339,11 +334,25 @@
 1e 2e e 1e 2e e 1e 2e")
       :bs-1 (parse "
 '(6-w 1w 5-w) '(2w 4w 1w) '(5-w 7w 7w) '(1w 3w 7b-w)")
+      :bs-332 (parse "1e s 1e s 1s s 1e s 1e s 1s s")
+      :bs-triadic (parse "1e 1e 3be 1s 3be 1s 3be 5e 5-e
+e 1e 3be 1s 3be 1s 3be 5e 5-e")
+      :bs-7th-chord (parse "1+s 1s 5s 7be 1s 3bs 5e 1s 5s 7bs 1+s 7bs 5s 1s")
+      :bs-pentatonic (parse "1e 1e 5s 7be s 1+e 1s 3be 3bs 4e")
+      :bs-pentatonic-fill (parse "1e 1e 5s 7be s 1+e 1s 3be 3bs 4e
+1e 1e 5s 7be s 1+e 1s 3be 3bs 4e
+1e 1e 5s 7be s 1+e 1s 3be 3bs 4e
+1e 1+e 7e 7be 6e 6bs 5e 4s 3e")
+      :bs-chromatic-walking (parse "1e 1+e 3be 3b+e 2be 2b+e 2e 2+e
+5#-e 5#e 6-e 6e 6#-e 6#e 7-e 7e")
       })
 
 (def patrs*
      [
-      {:bs (parse "1e s 1e s 1s s 1e s 1e s 1s s")
+      {:bs (parse "1e 1+e 7be 1+e 1e 5e 7be 1+e
+5e 1+e 7be 1+e 1e 5e 7be 1+e
+3be 3b+e 2+e 3b+e 3be 7be 2+e 3b+e
+5be 3b+e 2+e 3b+e 5be 7be 3b+e 4+e")
        :bd (parse "1 1 1 1") :hc (parse "q 1 q 1")
        :hh-c (parse "1s 1s s 1s 1s 1s s 1s 1s 1s s 1s 1s 1s s 1s ")
        :hh-o (parse "e 1 1 1 1")
@@ -380,7 +389,7 @@ e 1e e 1e e 1e e 1e
   (def song*
        {:bpm 140 
         :tracks [
-                 {:id :bs :note-f- #(update-in % [:oct] (fnil (partial + 1) 0))
+                 {:id :bs :note-f #(update-in % [:oct] (fnil (partial + 1) 0))
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}}
                  {:id :bd
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
