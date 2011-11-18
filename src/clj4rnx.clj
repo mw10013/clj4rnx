@@ -70,30 +70,27 @@
   (ev "clj4rnx.song.transport.lpb = " *lpb*)
   (ev "clj4rnx.sequencer = clj4rnx.song.sequencer")
   (doseq [_ (range 25)]
-    (ev "clj4rnx.sequencer:delete_sequence_at(" 1 ")")
-    (ev "clj4rnx.song:delete_track_at(" 1 ")"))
+    (ev "clj4rnx.sequencer:delete_sequence_at(" 1 ")"))
   
   (doseq [idx (range 1 (-> song :patrs count inc))]
     (when-not (= idx 1) (ev "clj4rnx.sequencer:insert_sequence_at(" idx ", " idx ")"))
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" idx ")")
     (ev "clj4rnx.pattern:clear()"))
 
-  (doseq [idx (range (-> song :tracks count))]
-    (ev "clj4rnx.track = clj4rnx.song:insert_track_at(" 1 ")"))
+  (ev (str "
+do local trk_index = #renoise.song ().tracks
+  while renoise.song():track(trk_index).type ~= renoise.Track.TRACK_TYPE_SEQUENCER do trk_index = trk_index - 1 end
+  while trk_index <= " (-> song :tracks count dec) " do renoise.song():insert_track_at(trk_index) trk_index = trk_index + 1 end
+end"))
 
   (dotimes [n (-> song :tracks count)]
     (let [{:keys [id instr devices]} (-> song :tracks (get n))]
       (ev "clj4rnx.track = clj4rnx.song:track(" (inc n) ")")
       (ev "clj4rnx.track.name = '" (name id) "'")
       (reset-instr (assoc instr :id id :instr-idx n))
-      (dorun (map-indexed (fn [device-idx device-name]
+      #_(dorun (map-indexed (fn [device-idx device-name]
                             (ev "clj4rnx.track:insert_device_at('" device-name "', " (+ device-idx 2) ")"))
-                          devices))))
-
-  (comment (dotimes [_ (-> song :instrs count dec)]
-             (ev "clj4rnx.song:insert_instrument_at(" 1 ")"))
-           (dorun (map-indexed (fn [idx m] (reset-instr (assoc m :instr-idx idx))) (:instrs song))))
-  )
+                          devices)))))
 
 (defn- note-col [t off-t off-vec]
   (let [index (or  (->> off-vec
@@ -389,33 +386,33 @@ e 1e e 1e e 1e e 1e
   (def song*
        {:bpm 140 
         :tracks [
-                 {:id :bs :note-f #(update-in % [:oct] (fnil (partial + 1) 0))
+                 #_{:id :bs :note-f #(update-in % [:oct] (fnil (partial + 1) 0))
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}}
                  {:id :bd
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
                   :devices- ["Audio/Effects/    Native/Delay"]
-                  :automation [{:id :bd-vol :device-index 0 :param-index 1}
+                  :automation- [{:id :bd-vol :device-index 0 :param-index 1}
 ;                                {:id :bd-pan :device-index 0 :param-index 0}
                                ]}
                  {:id :sd
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}}
-                 {:id :hc
+                 #_{:id :hc
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}}
-                 {:id :hh-c
+                 #_{:id :hh-c
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}}
-                 {:id :hh-o
+                 #_{:id :hh-o
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Open HH/VEC1 Cymbals  OH 001.wav"}}
-                 {:id :ride
+                 #_{:id :ride
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Ride/VEC1 Cymbals RD 05.wav"}}
-                 {:id :crash
+                 #_{:id :crash
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Crash/VEC1 Cymbals CR 001.wav"}}
-                 {:id :pd
+                 #_{:id :pd
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 32}}                 
-                 {:id :key
+                 #_{:id :key
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 27}}
-                 {:id :ld
+                 #_{:id :ld
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 46}}                 
-                 {:id :hov
+                 #_{:id :hov
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}} 
                  ]
         :patrs patrs*
