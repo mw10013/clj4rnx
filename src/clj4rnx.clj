@@ -69,19 +69,27 @@
   (ev "clj4rnx.song.transport.bpm = " (:bpm song))
   (ev "clj4rnx.song.transport.lpb = " *lpb*)
   (ev "clj4rnx.sequencer = clj4rnx.song.sequencer")
-  (doseq [_ (range 25)]
+  #_(doseq [_ (range 25)]
     (ev "clj4rnx.sequencer:delete_sequence_at(" 1 ")"))
   
-  (doseq [idx (range 1 (-> song :patrs count inc))]
+  #_(doseq [idx (range 1 (-> song :patrs count inc))]
     (when-not (= idx 1) (ev "clj4rnx.sequencer:insert_sequence_at(" idx ", " idx ")"))
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" idx ")")
     (ev "clj4rnx.pattern:clear()"))
 
-  (ev (str "
+  (ev "
 do local trk_index = #renoise.song ().tracks
   while renoise.song():track(trk_index).type ~= renoise.Track.TRACK_TYPE_SEQUENCER do trk_index = trk_index - 1 end
-  while trk_index <= " (-> song :tracks count dec) " do renoise.song():insert_track_at(trk_index) trk_index = trk_index + 1 end
-end"))
+  while trk_index < " (-> song :tracks count) " do renoise.song():insert_track_at(trk_index) trk_index = trk_index + 1 end
+end")
+
+  (ev "
+do local patr_index = #renoise.song().patterns + 1
+  while patr_index <= " (-> song :patrs count) " do
+    renoise.song().sequencer:insert_sequence_at(patr_index, patr_index)
+    patr_index = patr_index + 1
+  end
+end")
 
   (dotimes [n (-> song :tracks count)]
     (let [{:keys [id instr devices]} (-> song :tracks (get n))]
@@ -103,7 +111,11 @@ end"))
 (defn set-notes [trk-idx pitch-f off-vec notes]
   (ev "clj4rnx.track = clj4rnx.song:track(" trk-idx ")")
   (ev "clj4rnx.pattern_track = clj4rnx.pattern:track(" trk-idx ")")
-  (ev "clj4rnx.pattern_track:clear()")
+  #_(ev "clj4rnx.pattern_track:clear()")
+  #_(ev "
+for pos,line in renoise.song().pattern_iterator:lines_in_pattern_track " patr-idx ", " trk-idx) " do
+  line:clear()
+end"
   (dorun (map-indexed
           (fn [index off-t]
             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (inc (int (* off-t 4 *lpb*))) "):note_column(" (inc index) ")")
@@ -273,10 +285,9 @@ end"))
                                                          (>= oct 5) (assoc n :oct 4)
                                                          :else n)
                                                         n))  bar)) bars))})
-(defn set-patr [song idx off-map]
-  (let [{:keys [ bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get idx)) post-patr*)
-        ]
-    (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc idx) ")")
+(defn set-patr [song patr-idx off-map]
+  (let [{:keys [ bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get patr-idx)) post-patr*)]
+    (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc patr-idx) ")")
     (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
     (->> (:tracks song) (map-indexed vector)
          (reduce (fn [off-map [index {:keys [id automation note-f]}]]
@@ -285,9 +296,9 @@ end"))
                               (take bar-cnt (when-let [bars (id patr)] (when (seq? bars) bars)))))
                  off-map))))
 
-(defn loop-patr [song idx]
-  (set-patr song idx {})
-  (ev "clj4rnx.song.selected_sequence_index = " (inc idx))
+(defn loop-patr [song patr-idx]
+  (set-patr song patr-idx {})
+  (ev "clj4rnx.song.selected_sequence_index = " (inc patr-idx))
   (ev "clj4rnx.song.transport.loop_pattern = true")
   (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
 
@@ -355,8 +366,8 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
        :hh-o (parse "e 1 1 1 1")
 ;       :ride (parse "1e 1e 1e 1e 1e 1e 1e 1e")
        :crash (parse 2 "1w") :bar-cnt 8}
-      #_(select-keys grv-1* [:bd])
-      #_(select-keys grv-1* [:bd :sd])
+      (select-keys grv-1* [:bd])
+      (select-keys grv-1* [:bd :sd])
       #_grv-1*
       #_(patr-merge grv-1* {:bs (parse "
 e 6-e e 6-e e 6-e e 6-e
