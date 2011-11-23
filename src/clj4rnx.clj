@@ -69,13 +69,6 @@
   (ev "clj4rnx.song.transport.bpm = " (:bpm song))
   (ev "clj4rnx.song.transport.lpb = " *lpb*)
   (ev "clj4rnx.sequencer = clj4rnx.song.sequencer")
-  #_(doseq [_ (range 25)]
-    (ev "clj4rnx.sequencer:delete_sequence_at(" 1 ")"))
-  
-  #_(doseq [idx (range 1 (-> song :patrs count inc))]
-    (when-not (= idx 1) (ev "clj4rnx.sequencer:insert_sequence_at(" idx ", " idx ")"))
-    (ev "clj4rnx.pattern = clj4rnx.song:pattern(" idx ")")
-    (ev "clj4rnx.pattern:clear()"))
 
   (ev "
 do local trk_index = #renoise.song ().tracks
@@ -111,11 +104,10 @@ end")
 (defn set-notes [trk-idx pitch-f off-vec notes]
   (ev "clj4rnx.track = clj4rnx.song:track(" trk-idx ")")
   (ev "clj4rnx.pattern_track = clj4rnx.pattern:track(" trk-idx ")")
-  #_(ev "clj4rnx.pattern_track:clear()")
-  #_(ev "
-for pos,line in renoise.song().pattern_iterator:lines_in_pattern_track " patr-idx ", " trk-idx) " do
-  line:clear()
-end"
+  (ev "
+for i,v in ipairs(clj4rnx.pattern_track.lines) do
+  v:clear()
+end")
   (dorun (map-indexed
           (fn [index off-t]
             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (inc (int (* off-t 4 *lpb*))) "):note_column(" (inc index) ")")
