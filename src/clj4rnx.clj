@@ -1,5 +1,6 @@
 (ns clj4rnx
   "
+  GlobalOscActions.lua -  evaluate_env.clj4rnx = {}
 "
   (:require
    [clojure.string :as str]
@@ -10,8 +11,16 @@
 
 (def *lpb* 4)
 
-(osc/osc-debug false)
+(osc/osc-debug true)
 (defonce *client* (osc/osc-client "127.0.0.1" 8000))
+
+(def *query-port* 3456)
+(defonce *query-ctx* (let [result (atom [])
+                           result-server (osc/osc-server *query-port*)]
+                       (osc/osc-handle result-server "/clj4rnx/result/begin" (fn [msg] (println "begin") (reset! result [])))
+                       (osc/osc-handle result-server "/clj4rnx/result"
+                                       (fn [msg] (println "result") (def msg* msg) (swap! result conj (-> msg :args first))))
+                       {:result-server result-server :result result}))
 
 (defn set-log-level!
   "http://www.paullegato.com/blog/setting-clojure-log-level/"
@@ -25,6 +34,37 @@
 (set-log-level! java.util.logging.Level/FINEST)
 
 (defn ev [& args] (osc/osc-send *client* "/renoise/evaluate" (apply str args)))
+
+(defn bootstrap []
+  (ev "
+if clj4rnx.client == nil then
+  local client, socket_error = renoise.Socket.create_client(\"localhost\", " *query-port* ", renoise.Socket.PROTOCOL_UDP)
+  if (socket_error) then 
+    renoise.app():show_warning((\"Failed to start the OSC client. Error: '%s'\"):format(socket_error))
+    return
+  end
+  clj4rnx.client = client
+end
+"))
+
+(defn query
+  [& args]
+  (ev "clj4rnx.client:send(renoise.Osc.Message(\"/clj4rnx/result/begin\"))")
+  (apply ev args)
+  (ev "clj4rnx.client:send(renoise.Osc.Message(\"/clj4rnx/result/end\"))")
+  (if (osc/osc-recv (:result-server *query-ctx*) "/clj4rnx/result/end" 2000)
+    @(:result *query-ctx*)
+    (throw (Exception. "Timed out waiting for query result."))))
+
+(defn- try-query []
+  (query "
+do
+--  clj4rnx.client:send(renoise.Osc.Message(\"/clj4rnx/result/begin\"))
+  clj4rnx.client:send(renoise.Osc.Message(\"/clj4rnx/result\", {{tag=\"s\", value=\"abacab\"}}))
+--  clj4rnx.client:send(renoise.Osc.Message(\"/clj4rnx/result/end\"))
+end"))
+
+; (try-query)
 
 ; rprint(renoise.song():instrument(1).plugin_properties.available_plugins)
 ; (ev "print(renoise.song():instrument(1).plugin_properties.plugin_name)")
@@ -349,7 +389,9 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
 
 (def patrs*
      [
-      {:bs (parse "1e 1+e 7be 1+e 1e 5e 7be 1+e
+      (select-keys grv-1* [:bd])
+      (select-keys grv-1* [:bd :sd])
+      #_{:bs (parse "1e 1+e 7be 1+e 1e 5e 7be 1+e
 5e 1+e 7be 1+e 1e 5e 7be 1+e
 3be 3b+e 2+e 3b+e 3be 7be 2+e 3b+e
 5be 3b+e 2+e 3b+e 5be 7be 3b+e 4+e")
@@ -358,8 +400,6 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
        :hh-o (parse "e 1 1 1 1")
 ;       :ride (parse "1e 1e 1e 1e 1e 1e 1e 1e")
        :crash (parse 2 "1w") :bar-cnt 8}
-      (select-keys grv-1* [:bd])
-      (select-keys grv-1* [:bd :sd])
       #_grv-1*
       #_(patr-merge grv-1* {:bs (parse "
 e 6-e e 6-e e 6-e e 6-e
@@ -422,6 +462,8 @@ e 1e e 1e e 1e e 1e
         })
   (reset-song song*)
   (set-patrs song*))
+
+(bootstrap)
 
 (defonce *interactive* false)
 (if *interactive* (loop-patr song* 0) (demo))
