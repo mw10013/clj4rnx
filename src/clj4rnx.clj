@@ -45,6 +45,9 @@ if clj4rnx.client == nil then
   end
   clj4rnx.client = client
 end
+")
+  (ev "
+    clj4rnx.send_result = function(s) clj4rnx.client:send(renoise.Osc.Message('/clj4rnx/result', {{tag='s', value=s}})) end
 "))
 
 (defn query
@@ -53,15 +56,23 @@ end
   (apply ev args)
   (ev "clj4rnx.client:send(renoise.Osc.Message(\"/clj4rnx/result/end\"))")
   (if (osc/osc-recv (:result-server *query-ctx*) "/clj4rnx/result/end" 2000)
-    @(:result *query-ctx*)
+    (let [s (apply str @(:result *query-ctx*))]
+      (if (seq s) (read-string s)))
     (throw (Exception. "Timed out waiting for query result."))))
+
+(defn query-patr [index]
+  (query "
+do
+  local patr = renoise.song():pattern(" (inc index) ")
+  clj4rnx.send_result('{:name \"' .. patr.name .. '\" :number-of-lines ' .. patr.number_of_lines .. '}')
+end"))
 
 (defn- try-query []
   (query "
 do
---  clj4rnx.client:send(renoise.Osc.Message(\"/clj4rnx/result/begin\"))
-  clj4rnx.client:send(renoise.Osc.Message(\"/clj4rnx/result\", {{tag=\"s\", value=\"abacab\"}}))
---  clj4rnx.client:send(renoise.Osc.Message(\"/clj4rnx/result/end\"))
+  local patr = renoise.song():pattern(1)
+--  clj4rnx.client:send(renoise.Osc.Message('/clj4rnx/result', {{tag='s', value='{:name \"the-name\"}'}}))
+  clj4rnx.send_result('{:name \"' .. patr.name .. '\" :number-of-lines ' .. patr.number_of_lines .. '}')
 end"))
 
 ; (try-query)
