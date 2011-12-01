@@ -67,12 +67,26 @@ do
   clj4rnx.send_result('{:name \"' .. patr.name .. '\" :number-of-lines ' .. patr.number_of_lines .. '}')
 end"))
 
+; (query-patr 0)
+; (query-patr 1)
+
 (defn- try-query []
   (query "
 do
   local patr = renoise.song():pattern(1)
---  clj4rnx.client:send(renoise.Osc.Message('/clj4rnx/result', {{tag='s', value='{:name \"the-name\"}'}}))
-  clj4rnx.send_result('{:name \"' .. patr.name .. '\" :number-of-lines ' .. patr.number_of_lines .. '}')
+  clj4rnx.send_result('{:name \"' .. patr.name .. '\" :number-of-lines ' .. patr.number_of_lines .. ' :patr-tracks [')
+  for i, track in ipairs(patr.tracks) do
+    clj4rnx.send_result('{:lines [')
+    for ii, line in ipairs(track.lines) do
+      if not line.is_empty then
+        clj4rnx.send_result('{:index ' .. (ii - 1) .. ' :note-cols [')
+          
+        clj4rnx.send_result(']}')
+      end
+    end 
+    clj4rnx.send_result(']}')
+  end
+  clj4rnx.send_result(']}')
 end"))
 
 ; (try-query)
