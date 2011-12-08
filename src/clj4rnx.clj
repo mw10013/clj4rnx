@@ -17,9 +17,9 @@
 (def *query-port* 3456)
 (defonce *query-ctx* (let [result (atom [])
                            result-server (osc/osc-server *query-port*)]
-                       (osc/osc-handle result-server "/clj4rnx/result/begin" (fn [msg] (println "begin") (reset! result [])))
+                       (osc/osc-handle result-server "/clj4rnx/result/begin" (fn [msg] (reset! result [])))
                        (osc/osc-handle result-server "/clj4rnx/result"
-                                       (fn [msg] (println "result") (def msg* msg) (swap! result conj (-> msg :args first))))
+                                       (fn [msg] (def msg* msg) (swap! result conj (-> msg :args first))))
                        {:result-server result-server :result result}))
 
 (defn set-log-level!
@@ -64,23 +64,15 @@ end
   (query "
 do
   local patr = renoise.song():pattern(" (inc index) ")
-  clj4rnx.send_result('{:name \"' .. patr.name .. '\" :number-of-lines ' .. patr.number_of_lines .. '}')
-end"))
-
-; (query-patr 0)
-; (query-patr 1)
-
-(defn- try-query []
-  (query "
-do
-  local patr = renoise.song():pattern(1)
   clj4rnx.send_result('{:name \"' .. patr.name .. '\" :number-of-lines ' .. patr.number_of_lines .. ' :patr-tracks [')
   for i, track in ipairs(patr.tracks) do
     clj4rnx.send_result('{:lines [')
     for ii, line in ipairs(track.lines) do
       if not line.is_empty then
         clj4rnx.send_result('{:index ' .. (ii - 1) .. ' :note-cols [')
-          
+        for iii, note in ipairs(line.note_columns) do
+          clj4rnx.send_result('{:note ' .. note.note_value .. ' :vol ' .. note.volume_value .. '}')
+        end  
         clj4rnx.send_result(']}')
       end
     end 
@@ -89,7 +81,54 @@ do
   clj4rnx.send_result(']}')
 end"))
 
-; (try-query)
+; (pr (query-patr 0))
+; (def rnx-patr* (query-patr 0))
+; (query-patr 1)
+
+; renoise.song().patterns[].tracks[].lines[].note_columns[].note_value
+;  -> [number, 0-119, 120=Off, 121=Empty]
+
+(defn- finish-pending-noteoffs [number-of-lines {:keys [notes pending]}]
+  (let [noteoff-t (/ number-of-lines *lpb* 4)]
+    (->> pending
+         (remove nil?)
+         (reduce (fn [notes index]
+                   (let [{:keys [t] :as n} (notes index)]
+                     (assoc notes index (assoc n :d (- noteoff-t t)))))
+                 notes))))
+
+(defn- cook-patr-track [number-of-lines{:keys [lines] :as  patr-track}]
+  (let [notes (->> lines
+                   (reduce (fn [{:keys [notes pending] :as ctx} {:keys [index note-cols]}]
+                             (let [line-t (/ index *lpb* 4)]
+                               (->> note-cols
+                                    (remove (fn [col] (= (:note col) 121)))
+                                    (map-indexed vector)
+                                    (reduce (fn [{:keys [notes pending] :as ctx} [note-col-index {:keys [note vol]}]]
+                                              (let [ctx (if-let [pending-index (pending note-col-index)]
+                                                          (let [{:keys [t] :as  n} (notes pending-index)]
+                                                            (-> ctx
+                                                                (update-in [:pending] assoc note-col-index nil)
+                                                                (update-in [:notes] assoc pending-index
+                                                                           (assoc n :d (- line-t t)))
+                                                                (assoc :pending (assoc pending note-col-index nil))))
+                                                          ctx)]
+                                                (if (= note 120)
+                                                  ctx
+                                                  (-> ctx
+                                                      (update-in [:pending] assoc note-col-index (count notes))
+                                                      (update-in [:notes] conj {:t line-t :note note :v (/ vol 254)})))))
+                                            ctx))))
+                           ; max number of notes is 12.
+                           {:notes [] :pending (vec (repeat 12 nil))})
+                   (finish-pending-noteoffs number-of-lines))]
+    ; clear out pending
+    (assoc patr-track :notes (log/spy notes))))
+
+; (pr (cook-patr rnx-patr*))
+
+(defn cook-patr [{:keys [number-of-lines] :as patr}]
+  (update-in patr [:patr-tracks] #(->> % (map (partial cook-patr-track number-of-lines)) vec)))
 
 ; rprint(renoise.song():instrument(1).plugin_properties.available_plugins)
 ; (ev "print(renoise.song():instrument(1).plugin_properties.plugin_name)")
