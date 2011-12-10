@@ -60,10 +60,21 @@ end
       (if (seq s) (read-string s)))
     (throw (Exception. "Timed out waiting for query result."))))
 
-(defn query-patr [index]
-  (query "
+(defn query-patr [index-or-name]
+  (let [patr-snippet (if (number? index-or-name)
+                       (str "
+  local patr = renoise.song():pattern(" (inc index-or-name) ")")
+                       (str "
+  local patr = nil
+  for i, o in ipairs(renoise.song().patterns) do
+    if o.name == '" (name index-or-name) "' then
+      patr = o
+      break
+    end
+  end"))]
+    (query "
 do
-  local patr = renoise.song():pattern(" (inc index) ")
+" patr-snippet "
   clj4rnx.send_result('{:name \"' .. patr.name .. '\" :number-of-lines ' .. patr.number_of_lines .. ' :patr-tracks [')
   for i, track in ipairs(patr.tracks) do
     clj4rnx.send_result('{:lines [')
@@ -79,9 +90,11 @@ do
     clj4rnx.send_result(']}')
   end
   clj4rnx.send_result(']}')
-end"))
+end")))
 
 ; (pr (query-patr 0))
+; (pr (query-patr "grv-1"))
+; (pr (query-patr :grv-1))
 ; (def rnx-patr* (query-patr 0))
 ; (query-patr 1)
 
@@ -129,6 +142,9 @@ end"))
 
 (defn cook-patr [{:keys [number-of-lines] :as patr}]
   (update-in patr [:patr-tracks] #(->> % (map (partial cook-patr-track number-of-lines)) vec)))
+
+(defn cached-patr [index]
+  )
 
 ; rprint(renoise.song():instrument(1).plugin_properties.available_plugins)
 ; (ev "print(renoise.song():instrument(1).plugin_properties.plugin_name)")
@@ -381,15 +397,22 @@ end")
                                                          (>= oct 5) (assoc n :oct 4)
                                                          :else n)
                                                         n))  bar)) bars))})
+
+(defn patr-bars [patr id]
+  (when-let [bars (id patr)]
+    (if (fn? bars) (bars) (seq bars))))
+
 (defn set-patr [song patr-idx off-map]
-  (let [{:keys [ bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get patr-idx)) post-patr*)]
+  (let [{:keys [name bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get patr-idx)) post-patr*)]
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc patr-idx) ")")
+    (ev "clj4rnx.pattern.name = '" name "'" )
     (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
     (->> (:tracks song) (map-indexed vector)
          (reduce (fn [off-map [index {:keys [id automation note-f]}]]
                    (doseq [auto automation] (set-auto-bars auto (take bar-cnt (-> auto :id patr))))
                    (update-in off-map [id] (partial set-note-bars (inc index) deg-to-pitch note-f)
-                              (take bar-cnt (when-let [bars (id patr)] (when (seq? bars) bars)))))
+                              #_(take bar-cnt (when-let [bars (id patr)] (when (seq? bars) bars)))
+                              (take bar-cnt (patr-bars patr id))))
                  off-map))))
 
 (defn loop-patr [song patr-idx]
@@ -453,7 +476,7 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
 
 (def patrs*
      [
-      (select-keys grv-1* [:bd])
+      (assoc (select-keys grv-1* [:bd]) :name "grv-1")
       (select-keys grv-1* [:bd :sd])
       #_{:bs (parse "1e 1+e 7be 1+e 1e 5e 7be 1+e
 5e 1+e 7be 1+e 1e 5e 7be 1+e
