@@ -143,7 +143,7 @@ end")))
 (defn cook-patr [{:keys [number-of-lines] :as patr}]
   (update-in patr [:patr-tracks] #(->> % (map (partial cook-patr-track number-of-lines)) vec)))
 
-(defn cached-patr [index]
+(defn cached-patr [index-or-name]
   )
 
 ; rprint(renoise.song():instrument(1).plugin_properties.available_plugins)
@@ -239,7 +239,7 @@ end")
                                 note-col (inc note-col)]
                             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" l "):note_column(" note-col ")")
                             (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct acc))
-                            (ev "clj4rnx.note_column.volume_value = " (math/round (* v 254)))
+                            (ev "clj4rnx.note_column.volume_value = " (math/round (* v 127)))
                             (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
                             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (int (+  l (* d 4 *lpb* a))) "):note_column(" note-col ")")
                             (ev "clj4rnx.note_column.note_string = 'OFF'" )
@@ -403,17 +403,23 @@ end")
     (if (fn? bars) (bars) (seq bars))))
 
 (defn set-patr [song patr-idx off-map]
-  (let [{:keys [name bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get patr-idx)) post-patr*)]
+  (let [{:keys [name section-name template? bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get patr-idx)) post-patr*)]
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc patr-idx) ")")
     (ev "clj4rnx.pattern.name = '" name "'" )
-    (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
-    (->> (:tracks song) (map-indexed vector)
-         (reduce (fn [off-map [index {:keys [id automation note-f]}]]
-                   (doseq [auto automation] (set-auto-bars auto (take bar-cnt (-> auto :id patr))))
-                   (update-in off-map [id] (partial set-note-bars (inc index) deg-to-pitch note-f)
-                              #_(take bar-cnt (when-let [bars (id patr)] (when (seq? bars) bars)))
-                              (take bar-cnt (patr-bars patr id))))
-                 off-map))))
+    (when section-name
+      (ev "clj4rnx.song.sequencer:set_sequence_is_start_of_section(" (inc patr-idx) ", true)")
+      (ev "clj4rnx.song.sequencer:set_sequence_section_name(" (inc patr-idx) ", '" section-name "')"))
+    (if template?
+      []
+      (do
+        (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
+        (->> (:tracks song) (map-indexed vector)
+             (reduce (fn [off-map [index {:keys [id automation note-f]}]]
+                       (doseq [auto automation] (set-auto-bars auto (take bar-cnt (-> auto :id patr))))
+                       (update-in off-map [id] (partial set-note-bars (inc index) deg-to-pitch note-f)
+                                  #_(take bar-cnt (when-let [bars (id patr)] (when (seq? bars) bars)))
+                                  (take bar-cnt (patr-bars patr id))))
+                     off-map))))))
 
 (defn loop-patr [song patr-idx]
   (set-patr song patr-idx {})
@@ -476,8 +482,12 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
 
 (def patrs*
      [
-      (assoc (select-keys grv-1* [:bd]) :name "grv-1")
+      #_{:name :groovy :template? true}
+      #_{:name :groovy-gravy :template? true}
+      (assoc (select-keys grv-1* [:bd]) :name "grv-1" :section-name "templates")
+      (assoc (select-keys grv-1* [:bd]) :name "grv-1" :section-name "intro")
       (select-keys grv-1* [:bd :sd])
+      #_(assoc (select-keys grv-1* [:bd :sd]) :name :grv-2)
       #_{:bs (parse "1e 1+e 7be 1+e 1e 5e 7be 1+e
 5e 1+e 7be 1+e 1e 5e 7be 1+e
 3be 3b+e 2+e 3b+e 3be 7be 2+e 3b+e
