@@ -173,8 +173,8 @@ end")))
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time=1, value=0.5},{time=5.5, value=1},{time=8, value=0}}
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time = 1, value = 1}, {time = 5, value = 0}}
 
-(defn reset-instr [{:keys [id instr-idx] :as instr}]
-  (ev "clj4rnx.instrument = (renoise.song().instruments[" (inc instr-idx) "] or renoise.song():insert_instrument_at(" (inc instr-idx) "))")
+(defn reset-instr [{:keys [id instr-index] :as instr}]
+  (ev "clj4rnx.instrument = (renoise.song().instruments[" (inc instr-index) "] or renoise.song():insert_instrument_at(" (inc instr-index) "))")
   (when (:sample-filename instr)
     (ev "clj4rnx.instrument:sample(1).sample_buffer:load_from('" (:sample-filename instr) "')")
     (ev (str "clj4rnx.instrument.name = '" (str (name id) ": " (-> :sample-filename instr io/file .getName)) "'")))
@@ -208,9 +208,9 @@ end")
     (let [{:keys [id instr devices]} (-> song :tracks (get n))]
       (ev "clj4rnx.track = clj4rnx.song:track(" (inc n) ")")
       (ev "clj4rnx.track.name = '" (name id) "'")
-      (reset-instr (assoc instr :id id :instr-idx n))
-      #_(dorun (map-indexed (fn [device-idx device-name]
-                            (ev "clj4rnx.track:insert_device_at('" device-name "', " (+ device-idx 2) ")"))
+      (reset-instr (assoc instr :id id :instr-index n))
+      #_(dorun (map-indexed (fn [device-index device-name]
+                            (ev "clj4rnx.track:insert_device_at('" device-name "', " (+ device-index 2) ")"))
                           devices)))))
 
 (defn- note-col [t off-t off-vec]
@@ -221,9 +221,9 @@ end")
                    (count off-vec))]
     [index (assoc off-vec index off-t)]))
 
-(defn set-notes [trk-idx pitch-f off-vec notes]
-  (ev "clj4rnx.track = clj4rnx.song:track(" trk-idx ")")
-  (ev "clj4rnx.pattern_track = clj4rnx.pattern:track(" trk-idx ")")
+(defn set-notes [trk-index pitch-f off-vec notes]
+  (ev "clj4rnx.track = clj4rnx.song:track(" trk-index ")")
+  (ev "clj4rnx.pattern_track = clj4rnx.pattern:track(" trk-index ")")
   (ev "
 for i,v in ipairs(clj4rnx.pattern_track.lines) do
   v:clear()
@@ -240,7 +240,7 @@ end")
                             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" l "):note_column(" note-col ")")
                             (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct acc))
                             (ev "clj4rnx.note_column.volume_value = " (math/round (* v 127)))
-                            (ev "clj4rnx.note_column.instrument_value = " (dec trk-idx))
+                            (ev "clj4rnx.note_column.instrument_value = " (dec trk-index))
                             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (int (+  l (* d 4 *lpb* a))) "):note_column(" note-col ")")
                             (ev "clj4rnx.note_column.note_string = 'OFF'" )
                             off-vec))
@@ -249,6 +249,9 @@ end")
       (ev "if clj4rnx.track.visible_note_columns < " vis-note-cols
           " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")
       off-vec))
+
+(defn set-alias [alias-patr-index {:keys [trk-index]}]
+  (ev "clj4rnx.pattern:track(" trk-index ").alias_pattern_index = " (inc alias-patr-index)))
 
 (def e-re* #"(([whqest\.]+)|(-?[\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?)")
 ; (re-find e-re* "-1-")
@@ -300,9 +303,9 @@ end")
   ([es] (es-to-bars nil es))
   ([bar-cnt es]
      (let [bars (reduce (fn [bars {t :t :as e}]
-                          (let [idx (int t)
-                                bars (into bars (repeat (- (inc idx) (count bars)) []))]
-                            (assoc bars idx (conj (bars idx) (assoc e :t (- (e :t) idx)))))) [] es)]
+                          (let [index (int t)
+                                bars (into bars (repeat (- (inc index) (count bars)) []))]
+                            (assoc bars index (conj (bars index) (assoc e :t (- (e :t) index)))))) [] es)]
        (if bar-cnt (take bar-cnt (concat bars (repeat []))) bars ))))
 
 (defn- normalize [s] (-> s (str/replace e-re* #(if-not (-> 0 % empty?) (str \" (% 0) \") ""))
@@ -365,10 +368,10 @@ end")
   ([deg oct acc] (deg-to-pitch 48 deg oct acc))
   ([base deg oct acc] (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
 
-(defn set-note-bars [trk-idx pitch-f note-f off-vec bars]
-  (let [off-vec (set-notes trk-idx pitch-f off-vec
+(defn set-note-bars [trk-index pitch-f note-f off-vec bars]
+  (let [off-vec (set-notes trk-index pitch-f off-vec
                            (map (or note-f identity)
-                                (mapcat (fn [idx bar] (map #(update-in % [:t] (partial + idx)) bar))
+                                (mapcat (fn [index bar] (map #(update-in % [:t] (partial + index)) bar))
                                         (iterate inc 0) bars)))
         bars-t (count bars)]
     (->> off-vec (map #(- % bars-t)) (remove neg?) vec)))
@@ -380,7 +383,7 @@ end")
   (ev "clj4rnx.automation.playmode = renoise.PatternTrackAutomation." playmode)
   (ev "clj4rnx.automation.points = {"
       (->> bars
-           (mapcat (fn [idx bar] (map #(assoc %1 :t (-> %1 :t (+ idx) (* 4 *lpb*) int)) bar)) (iterate inc 0))
+           (mapcat (fn [index bar] (map #(assoc %1 :t (-> %1 :t (+ index) (* 4 *lpb*) int)) bar)) (iterate inc 0))
            (map #(str "{time=" (->  % :t inc) ", value=" (double (:deg %)) \}))
            (interpose \,)
            (apply str)) \}))
@@ -398,17 +401,17 @@ end")
                                                          :else n)
                                                         n))  bar)) bars))})
 
-(defn patr-bars [patr id]
-  (when-let [bars (id patr)]
-    (if (fn? bars) (bars) (seq bars))))
+(defn patr-bars [patr trk-id trk-index]
+  (when-let [bars (trk-id patr)]
+    (if (fn? bars) (bars {:patr patr :trk-id trk-id :trk-index trk-index}) (seq bars))))
 
-(defn set-patr [song patr-idx off-map]
-  (let [{:keys [name section-name template? bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get patr-idx)) post-patr*)]
-    (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc patr-idx) ")")
+(defn set-patr [song patr-index off-map]
+  (let [{:keys [name section-name template? bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get patr-index)) post-patr*)]
+    (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc patr-index) ")")
     (ev "clj4rnx.pattern.name = '" name "'" )
     (when section-name
-      (ev "clj4rnx.song.sequencer:set_sequence_is_start_of_section(" (inc patr-idx) ", true)")
-      (ev "clj4rnx.song.sequencer:set_sequence_section_name(" (inc patr-idx) ", '" section-name "')"))
+      (ev "clj4rnx.song.sequencer:set_sequence_is_start_of_section(" (inc patr-index) ", true)")
+      (ev "clj4rnx.song.sequencer:set_sequence_section_name(" (inc patr-index) ", '" section-name "')"))
     (if template?
       []
       (do
@@ -417,13 +420,12 @@ end")
              (reduce (fn [off-map [index {:keys [id automation note-f]}]]
                        (doseq [auto automation] (set-auto-bars auto (take bar-cnt (-> auto :id patr))))
                        (update-in off-map [id] (partial set-note-bars (inc index) deg-to-pitch note-f)
-                                  #_(take bar-cnt (when-let [bars (id patr)] (when (seq? bars) bars)))
-                                  (take bar-cnt (patr-bars patr id))))
+                                  (take bar-cnt (patr-bars patr id index))))
                      off-map))))))
 
-(defn loop-patr [song patr-idx]
-  (set-patr song patr-idx {})
-  (ev "clj4rnx.song.selected_sequence_index = " (inc patr-idx))
+(defn loop-patr [song patr-index]
+  (set-patr song patr-index {})
+  (ev "clj4rnx.song.selected_sequence_index = " (inc patr-index))
   (ev "clj4rnx.song.transport.loop_pattern = true")
   (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
 
@@ -485,7 +487,8 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
       #_{:name :groovy :template? true}
       #_{:name :groovy-gravy :template? true}
       (assoc (select-keys grv-1* [:bd]) :name "grv-1" :section-name "templates")
-      (assoc (select-keys grv-1* [:bd]) :name "grv-1" :section-name "intro")
+      { :name "grv-1" :section-name "intro" :bd (partial set-alias 0) }
+      #_(assoc (select-keys grv-1* [:bd]) :name "grv-1" :section-name "intro")
       (select-keys grv-1* [:bd :sd])
       #_(assoc (select-keys grv-1* [:bd :sd]) :name :grv-2)
       #_{:bs (parse "1e 1+e 7be 1+e 1e 5e 7be 1+e
