@@ -60,6 +60,34 @@ end
       (if (seq s) (read-string s)))
     (throw (Exception. "Timed out waiting for query result."))))
 
+(defn- query-tracks-raw []
+  (query "
+do
+  clj4rnx.send_result('[')
+  for i, track in ipairs(renoise.song().tracks) do
+    clj4rnx.send_result('{:name \"' .. track.name .. '\" :track-index ' .. i)
+    for pos, col in renoise.song().pattern_iterator:note_columns_in_track(i, false) do
+      if col.instrument_value ~= 255 then
+        clj4rnx.send_result(' :instr-index ' .. col.instrument_value)  
+        break
+      end
+    end
+    clj4rnx.send_result('}')
+  end
+  clj4rnx.send_result(']')  
+end"))
+
+(defn query-tracks []
+  (->> (query-tracks-raw)
+       (map #(-> %
+                 (update-in  [:track-index] dec)
+                 (assoc :track-key (-> % :name keyword))))
+       (map #(vector (:track-key %) %))
+       (into {})))
+
+; (query-tracks-raw)
+; (query-tracks)
+
 (defn query-patr [index-or-name]
   (let [patr-snippet (if (number? index-or-name)
                        (str "
@@ -173,7 +201,7 @@ end")))
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time=1, value=0.5},{time=5.5, value=1},{time=8, value=0}}
 ; renoise.song().patterns[1].tracks[1].automation[1].points = {{time = 1, value = 1}, {time = 5, value = 0}}
 
-(defn reset-instr [{:keys [id instr-index] :as instr}]
+(defn reset-instr- [{:keys [id instr-index] :as instr}]
   (ev "clj4rnx.instrument = (renoise.song().instruments[" (inc instr-index) "] or renoise.song():insert_instrument_at(" (inc instr-index) "))")
   (when (:sample-filename instr)
     (ev "clj4rnx.instrument:sample(1).sample_buffer:load_from('" (:sample-filename instr) "')")
@@ -190,7 +218,7 @@ end")))
   (ev "clj4rnx.song.transport.lpb = " *lpb*)
   (ev "clj4rnx.sequencer = clj4rnx.song.sequencer")
 
-  (ev "
+  #_(ev "
 do local trk_index = #renoise.song ().tracks
   while renoise.song():track(trk_index).type ~= renoise.Track.TRACK_TYPE_SEQUENCER do trk_index = trk_index - 1 end
   while trk_index < " (-> song :tracks count) " do renoise.song():insert_track_at(trk_index) trk_index = trk_index + 1 end
@@ -204,12 +232,12 @@ do local patr_index = #renoise.song().patterns + 1
   end
 end")
 
-  (dotimes [n (-> song :tracks count)]
+  #_(dotimes [n (-> song :tracks count)]
     (let [{:keys [id instr devices]} (-> song :tracks (get n))]
       (ev "clj4rnx.track = clj4rnx.song:track(" (inc n) ")")
       (ev "clj4rnx.track.name = '" (name id) "'")
       (reset-instr (assoc instr :id id :instr-index n))
-      #_(dorun (map-indexed (fn [device-index device-name]
+      (dorun (map-indexed (fn [device-index device-name]
                             (ev "clj4rnx.track:insert_device_at('" device-name "', " (+ device-index 2) ")"))
                           devices)))))
 
@@ -221,7 +249,7 @@ end")
                    (count off-vec))]
     [index (assoc off-vec index off-t)]))
 
-(defn set-notes [trk-index pitch-f off-vec notes]
+(defn set-notes- [trk-index pitch-f off-vec notes]
   (ev "clj4rnx.track = clj4rnx.song:track(" trk-index ")")
   (ev "clj4rnx.pattern_track = clj4rnx.pattern:track(" trk-index ")")
   (ev "
@@ -241,6 +269,35 @@ end")
                             (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct acc))
                             (ev "clj4rnx.note_column.volume_value = " (math/round (* v 127)))
                             (ev "clj4rnx.note_column.instrument_value = " (dec trk-index))
+                            (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (int (+  l (* d 4 *lpb* a))) "):note_column(" note-col ")")
+                            (ev "clj4rnx.note_column.note_string = 'OFF'" )
+                            off-vec))
+                          (or off-vec []) notes)
+        vis-note-cols (count off-vec)]
+      (ev "if clj4rnx.track.visible_note_columns < " vis-note-cols
+          " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")
+      off-vec))
+
+(defn set-notes [{:keys [track-index instr-index] :as track} pitch-f off-vec notes]
+  (ev "clj4rnx.track = clj4rnx.song:track(" (inc track-index) ")")
+  (ev "clj4rnx.pattern_track = clj4rnx.pattern:track(" (inc track-index) ")")
+  (ev "
+for i,v in ipairs(clj4rnx.pattern_track.lines) do
+  v:clear()
+end")
+  (dorun (map-indexed
+          (fn [index off-t]
+            (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (inc (int (* off-t 4 *lpb*))) "):note_column(" (inc index) ")")
+            (ev "clj4rnx.note_column.note_string = 'OFF'" ))
+          off-vec))
+  (let [off-vec (reduce (fn [off-vec {:keys [t deg oct acc v d a] :as e :or {oct 0 v 3/4 acc 0 a 1}}]
+                          (let [l (inc (int (* t 4 *lpb*)))
+                                [note-col off-vec] (note-col t (+ t (* d a)) off-vec)
+                                note-col (inc note-col)]
+                            (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" l "):note_column(" note-col ")")
+                            (ev "clj4rnx.note_column.note_value = " (pitch-f deg oct acc))
+                            (ev "clj4rnx.note_column.volume_value = " (math/round (* v 127)))
+                            (ev "clj4rnx.note_column.instrument_value = " instr-index)
                             (ev "clj4rnx.note_column = clj4rnx.pattern_track:line(" (int (+  l (* d 4 *lpb* a))) "):note_column(" note-col ")")
                             (ev "clj4rnx.note_column.note_string = 'OFF'" )
                             off-vec))
@@ -368,8 +425,16 @@ end")
   ([deg oct acc] (deg-to-pitch 48 deg oct acc))
   ([base deg oct acc] (+ base ([0 2 4 5 7 9 11] (dec deg)) (* oct 12) acc)))
 
-(defn set-note-bars [trk-index pitch-f note-f off-vec bars]
+(defn set-note-bars- [trk-index pitch-f note-f off-vec bars]
   (let [off-vec (set-notes trk-index pitch-f off-vec
+                           (map (or note-f identity)
+                                (mapcat (fn [index bar] (map #(update-in % [:t] (partial + index)) bar))
+                                        (iterate inc 0) bars)))
+        bars-t (count bars)]
+    (->> off-vec (map #(- % bars-t)) (remove neg?) vec)))
+
+(defn set-note-bars [{:keys [note-f] :as track} pitch-f off-vec bars]
+  (let [off-vec (set-notes track pitch-f off-vec
                            (map (or note-f identity)
                                 (mapcat (fn [index bar] (map #(update-in % [:t] (partial + index)) bar))
                                         (iterate inc 0) bars)))
@@ -405,7 +470,7 @@ end")
   (when-let [bars (trk-id patr)]
     (if (fn? bars) (bars {:patr patr :trk-id trk-id :trk-index trk-index}) (seq bars))))
 
-(defn set-patr [song patr-index off-map]
+(defn set-patr- [song patr-index off-map]
   (let [{:keys [name section-name template? bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get patr-index)) post-patr*)]
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc patr-index) ")")
     (ev "clj4rnx.pattern.name = '" name "'" )
@@ -423,14 +488,34 @@ end")
                                   (take bar-cnt (patr-bars patr id index))))
                      off-map))))))
 
-(defn loop-patr [song patr-index]
+(defn set-patr [{:keys [song tracks off-map] :as ctx} patr-index]
+  (let [{:keys [name section-name template? bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get patr-index)) post-patr*)]
+    (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc patr-index) ")")
+    (ev "clj4rnx.pattern.name = '" name "'" )
+    (when section-name
+      (ev "clj4rnx.song.sequencer:set_sequence_is_start_of_section(" (inc patr-index) ", true)")
+      (ev "clj4rnx.song.sequencer:set_sequence_section_name(" (inc patr-index) ", '" section-name "')"))
+    (assoc ctx :off-map (if template?
+                          {}
+                          (do
+                            (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
+                            (reduce (fn [off-map [track-key {:keys [track-index] :as track}]]
+                                      (if (find patr track-key)
+                                        (update-in off-map [track-key] (partial set-note-bars track deg-to-pitch)
+                                                   (take bar-cnt (patr-bars patr track-key track-index)))
+                                        off-map))
+                                    off-map tracks))))))
+
+(defn loop-patr- [song patr-index]
   (set-patr song patr-index {})
   (ev "clj4rnx.song.selected_sequence_index = " (inc patr-index))
   (ev "clj4rnx.song.transport.loop_pattern = true")
   (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
 
 (defn- set-patrs [song]
-  (reduce (fn [off-map index] (set-patr song index off-map)) {} (range (-> song :patrs count))))
+  (reduce #(set-patr %1 %2)
+          {:song song :tracks (merge (:tracks song) (query-tracks)) :off-map {}}
+          (range (-> song :patrs count))))
 
 (def grv-1*
      {:bd (parse "1 1 1 1")
@@ -487,9 +572,9 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
       #_{:name :groovy :template? true}
       #_{:name :groovy-gravy :template? true}
       (assoc (select-keys grv-1* [:bd]) :name "grv-1" :section-name "templates")
-      { :name "grv-1" :section-name "intro" :bd (partial set-alias 0) }
+      #_{ :name "grv-1" :section-name "intro" :bd (partial set-alias 0) }
       #_(assoc (select-keys grv-1* [:bd]) :name "grv-1" :section-name "intro")
-      (select-keys grv-1* [:bd :sd])
+      #_(select-keys grv-1* [:bd :sd])
       #_(assoc (select-keys grv-1* [:bd :sd]) :name :grv-2)
       #_{:bs (parse "1e 1+e 7be 1+e 1e 5e 7be 1+e
 5e 1+e 7be 1+e 1e 5e 7be 1+e
@@ -528,8 +613,9 @@ e 1e e 1e e 1e e 1e
 (defn demo []
   (def song*
        {:bpm 140 
-        :tracks [
-                 #_{:id :bs :note-f #(update-in % [:oct] (fnil (partial + 1) 0))
+        :tracks {:bs {:note-f #(update-in % [:oct] (fnil (partial + 1) 0))}} 
+        :tracks- [
+                 {:id :bs :note-f #(update-in % [:oct] (fnil (partial + 1) 0))
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 87}}
                  {:id :bd
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Bassdrums/VEC1 Trancy/VEC1 BD Trancy 10.wav"}
@@ -539,23 +625,23 @@ e 1e e 1e e 1e e 1e
                                ]}
                  {:id :sd
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Snares/VEC1 Snare 031.wav"}}
-                 #_{:id :hc
+                 {:id :hc
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Claps/VEC1 Clap 027.wav"}}
-                 #_{:id :hh-c
+                 {:id :hh-c
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Close HH/VEC1 Cymbals  CH 11.wav"}}
-                 #_{:id :hh-o
+                 {:id :hh-o
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Open HH/VEC1 Cymbals  OH 001.wav"}}
-                 #_{:id :ride
+                 {:id :ride
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Ride/VEC1 Cymbals RD 05.wav"}}
-                 #_{:id :crash
+                 {:id :crash
                   :instr {:sample-filename "/Users/mw/Documents/music/vengence/VENGEANCE ESSENTIAL CLUB SOUNDS vol-1/VEC1 Cymbals/VEC1 Crash/VEC1 Cymbals CR 001.wav"}}
-                 #_{:id :pd
+                 {:id :pd
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 32}}                 
-                 #_{:id :key
+                 {:id :key
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 27}}
-                 #_{:id :ld
+                 {:id :ld
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 46}}                 
-                 #_{:id :hov
+                 {:id :hov
                   :instr {:plugin-name "Audio/Generators/VST/Sylenth1" :preset 83}} 
                  ]
         :patrs patrs*
@@ -566,4 +652,5 @@ e 1e e 1e e 1e e 1e
 (bootstrap)
 
 (defonce *interactive* false)
-(if *interactive* (loop-patr song* 0) (demo))
+;(if *interactive* (loop-patr song* 0) (demo))
+(demo)
