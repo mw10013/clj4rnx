@@ -258,6 +258,8 @@ end")
     (throw (IllegalArgumentException. (str "set-alias: alias-patr-key " alias-patr-key " does not exist."))))
   nil)
 
+(defn alias [alias-patr-key] (partial set-alias alias-patr-key))
+
 (def e-re* #"(([whqest\.]+)|(-?[\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?)")
 ; (re-find e-re* "-1-")
 ; (re-find e-re* "1#+hq")
@@ -393,11 +395,11 @@ end")
            (interpose \,)
            (apply str)) \}))
 
-(def pre-patr* {:bar-cnt 1})
+(def pre-patr* {:patr-bar-cnt 1})
 (def post-patr* {:bs-- (fn [bars] (map (fn [bar] (map #(update-in % [:oct] (fnil inc 0)) bar)) bars))})
 
 (defn set-patr [{:keys [song tracks offs] :as ctx} patr]
-  (let [{:keys [patr-key patr-index section-name template? bar-cnt] :as patr} (patr-merge pre-patr* patr post-patr*)]
+  (let [{:keys [patr-key patr-index section-name template? patr-bar-cnt] :as patr} (patr-merge pre-patr* patr post-patr*)]
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc patr-index) ")")
     (when patr-key (ev "clj4rnx.pattern.name = '" (name patr-key) "'"))
     (when section-name
@@ -406,13 +408,13 @@ end")
     (assoc ctx :offs (if template?
                           {}
                           (do
-                            (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
+                            (ev "clj4rnx.pattern.number_of_lines = " (* patr-bar-cnt 4 *lpb*))
                             (reduce (fn [offs [track-key {:keys [track-index] :as track}]]
                                       (let [bars (track-key patr)
                                             bars (if (fn? bars) (bars ctx patr track) bars)]
                                         (if-let [bars (seq bars)]
                                           (update-in offs [track-key] (partial set-note-bars track deg-to-pitch)
-                                                     (take bar-cnt bars))
+                                                     (take patr-bar-cnt bars))
                                           (dissoc offs track-key))))
                                     offs tracks))))))
 
@@ -480,9 +482,9 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
 
 (def patrs*
      [
-      (assoc (select-keys grv-1* [:bd :sd :hh-c]) :patr-key :grv-1 :section-name "templates" :bar-cnt 2)
-      {:section-name "intro" :bd (partial set-alias :grv-1) }
-      {:bd (partial set-alias :grv-1) :sd (partial set-alias :grv-1)}
+      (assoc (select-keys grv-1* [:bd :sd :hh-c]) :patr-key :grv-1 :section-name "templates" :patr-bar-cnt 2)
+      {:section-name "intro" :bd (alias :grv-1) }
+      {:bd (alias :grv-1) :sd (alias :grv-1)}
       #_(assoc (select-keys grv-1* [:bd]) :patr-key :grv-1 :section-name "intro")
       #_(select-keys grv-1* [:bd :sd])
       #_(assoc (select-keys grv-1* [:bd :sd]) :patr-key :grv-2)
@@ -494,30 +496,30 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
        :hh-c (parse "1s 1s s 1s 1s 1s s 1s 1s 1s s 1s 1s 1s s 1s ")
        :hh-o (parse "e 1 1 1 1")
 ;       :ride (parse "1e 1e 1e 1e 1e 1e 1e 1e")
-       :crash (parse 2 "1w") :bar-cnt 8}
+       :crash (parse 2 "1w") :patr-bar-cnt 8}
       #_grv-1*
       #_(patr-merge grv-1* {:bs (parse "
 e 6-e e 6-e e 6-e e 6-e
 e 2e e 2e e 2e e 2e
 e 7-e e 7-e e 7-e e 7-e
 e 1e e 1e e 1e e 1e
-") :bar-cnt 8})
-      #_(patr-merge grv-1* {:bs (step-seq step-index (parse "1e 1e 1s 1s s -1s 1e 2e 1s 1s") (:bs-1 seeds*)) :bar-cnt 8})
+") :patr-bar-cnt 8})
+      #_(patr-merge grv-1* {:bs (step-seq step-index (parse "1e 1e 1s 1s s -1s 1e 2e 1s 1s") (:bs-1 seeds*)) :patr-bar-cnt 8})
       #_{:bs (step-seq step-index (parse "1e 1e 1s 1s s -1s 1e 2e 1s 1s") (:bs-1 seeds*))
 ;       :ld (step-seq (partial step-index >) (:steps-1 seeds*) (:chords-1 seeds*))
 ;       :pd (step-seq (partial step-index >) (parse "1s 1s '(1e 2e)") (:chords-1 seeds*))
 ;       :pd (step-seq (partial step-index nil) (parse "1s -1s '(1e 2e)") (parse "'(1w 3w 5w 6w 7b-w)"))
 ;       :pd (:chords-1 seeds*)
-       :bar-cnt 8}
-      #_{:bs (step-seq (partial step-index <) (parse "1e 1e 1s 1s s 1s 1e 1e 1s 1s") (:cloudburst seeds*)) :pd (:cloudburst seeds*) :bar-cnt 16}
-      #_(-> grv-1* (select-keys [:bd]) (assoc :bar-cnt- 1))
+       :patr-bar-cnt 8}
+      #_{:bs (step-seq (partial step-index <) (parse "1e 1e 1s 1s s 1s 1e 1e 1s 1s") (:cloudburst seeds*)) :pd (:cloudburst seeds*) :patr-bar-cnt 16}
+      #_(-> grv-1* (select-keys [:bd]) (assoc :patr-bar-cnt- 1))
       #_(assoc (patr-merge grv-1* bs-1*)
         :pd (apply step-seq step-all ((juxt :steps-1 :cloudburst) seeds*))
-        :bar-cnt 16)
+        :patr-bar-cnt 16)
       #_(assoc (patr-merge grv-1* bs-1*)
         :key (apply step-seq step-index ((juxt :cloudburst-steps :cloudburst) seeds*))
-        :bar-cnt 16)
-      #_(assoc (patr-merge grv-1* bs-1* {:pd (:cloudburst seeds*)}) :bar-cnt 16)
+        :patr-bar-cnt 16)
+      #_(assoc (patr-merge grv-1* bs-1* {:pd (:cloudburst seeds*)}) :patr-bar-cnt 16)
       ])
 
 (defn demo []
