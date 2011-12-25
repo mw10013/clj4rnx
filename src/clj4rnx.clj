@@ -252,8 +252,10 @@ end")
           " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")
       offs))
 
-(defn set-alias [alias-patr-index _ {:keys [track-index]}]
-  (ev "clj4rnx.pattern:track(" (inc track-index) ").alias_pattern_index = " (inc alias-patr-index))
+(defn set-alias [alias-patr-key {:keys [patrs]} _ {:keys [track-index]}]
+  (if-let [alias-patr (alias-patr-key patrs)]
+    (ev "clj4rnx.pattern:track(" (inc track-index) ").alias_pattern_index = " (-> :patr-index alias-patr inc))
+    (throw (IllegalArgumentException. (str "set-alias: alias-patr-key " alias-patr-key " does not exist."))))
   nil)
 
 (def e-re* #"(([whqest\.]+)|(-?[\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?)")
@@ -394,10 +396,10 @@ end")
 (def pre-patr* {:bar-cnt 1})
 (def post-patr* {:bs-- (fn [bars] (map (fn [bar] (map #(update-in % [:oct] (fnil inc 0)) bar)) bars))})
 
-(defn set-patr [{:keys [song tracks offs] :as ctx} patr-index]
-  (let [{:keys [name section-name template? bar-cnt] :as patr} (patr-merge pre-patr* (-> song :patrs (get patr-index)) post-patr*)]
+(defn set-patr [{:keys [song tracks offs] :as ctx} patr]
+  (let [{:keys [patr-key patr-index section-name template? bar-cnt] :as patr} (patr-merge pre-patr* patr post-patr*)]
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc patr-index) ")")
-    (ev "clj4rnx.pattern.name = '" name "'" )
+    (when patr-key (ev "clj4rnx.pattern.name = '" (name patr-key) "'"))
     (when section-name
       (ev "clj4rnx.song.sequencer:set_sequence_is_start_of_section(" (inc patr-index) ", true)")
       (ev "clj4rnx.song.sequencer:set_sequence_section_name(" (inc patr-index) ", '" section-name "')"))
@@ -407,7 +409,7 @@ end")
                             (ev "clj4rnx.pattern.number_of_lines = " (* bar-cnt 4 *lpb*))
                             (reduce (fn [offs [track-key {:keys [track-index] :as track}]]
                                       (let [bars (track-key patr)
-                                            bars (if (fn? bars) (bars patr track) bars)]
+                                            bars (if (fn? bars) (bars ctx patr track) bars)]
                                         (if-let [bars (seq bars)]
                                           (update-in offs [track-key] (partial set-note-bars track deg-to-pitch)
                                                      (take bar-cnt bars))
@@ -421,9 +423,11 @@ end")
   (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
 
 (defn- set-patrs [song]
-  (reduce #(set-patr %1 %2)
-          {:song song :tracks (merge (:tracks song) (query-tracks)) :offs {}}
-          (range (-> song :patrs count))))
+  (let [song (update-in song [:patrs] #(->> % (map-indexed (fn [index m] (assoc m :patr-index index))) vec))]
+    (reduce #(set-patr %1 %2)
+            {:song song :tracks (merge (:tracks song) (query-tracks)) :offs {}
+             :patrs (reduce (fn [patrs m] (assoc patrs (:patr-key m) m)) {} (:patrs song))}
+            (:patrs song))))
 
 (def grv-1*
      {:bd (parse "1 1 1 1")
@@ -476,12 +480,12 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
 
 (def patrs*
      [
-      (assoc (select-keys grv-1* [:bd :sd :hh-c]) :name "grv-1" :section-name "templates" :bar-cnt 2)
-      {:section-name "intro" :bd (partial set-alias 0) }
-      {:bd (partial set-alias 0) :sd (partial set-alias 0)}
-      #_(assoc (select-keys grv-1* [:bd]) :name "grv-1" :section-name "intro")
+      (assoc (select-keys grv-1* [:bd :sd :hh-c]) :patr-key :grv-1 :section-name "templates" :bar-cnt 2)
+      {:section-name "intro" :bd (partial set-alias :grv-1) }
+      {:bd (partial set-alias :grv-1) :sd (partial set-alias :grv-1)}
+      #_(assoc (select-keys grv-1* [:bd]) :patr-key :grv-1 :section-name "intro")
       #_(select-keys grv-1* [:bd :sd])
-      #_(assoc (select-keys grv-1* [:bd :sd]) :name :grv-2)
+      #_(assoc (select-keys grv-1* [:bd :sd]) :patr-key :grv-2)
       #_{:bs (parse "1e 1+e 7be 1+e 1e 5e 7be 1+e
 5e 1+e 7be 1+e 1e 5e 7be 1+e
 3be 3b+e 2+e 3b+e 3be 7be 2+e 3b+e
