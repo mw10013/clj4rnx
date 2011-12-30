@@ -252,13 +252,12 @@ end")
           " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")
       offs))
 
-(defn set-alias [alias-patr-key {:keys [patrs]} _ {:keys [track-index]}]
-  (if-let [alias-patr (alias-patr-key patrs)]
-    (ev "clj4rnx.pattern:track(" (inc track-index) ").alias_pattern_index = " (-> :patr-index alias-patr inc))
-    (throw (IllegalArgumentException. (str "set-alias: alias-patr-key " alias-patr-key " does not exist."))))
-  nil)
-
-(defn alias [alias-patr-key] (partial set-alias alias-patr-key))
+(defn alias [alias-patr-key]
+     (fn [{:keys [patrs]} _ {:keys [track-index]}]
+       (if-let [alias-patr (alias-patr-key patrs)]
+         (ev "clj4rnx.pattern:track(" (inc track-index) ").alias_pattern_index = " (-> :patr-index alias-patr inc))
+         (throw (IllegalArgumentException. (str "set-alias: alias-patr-key " alias-patr-key " does not exist."))))
+       nil))
 
 (def e-re* #"(([whqest\.]+)|(-?[\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?)")
 ; (re-find e-re* "-1-")
@@ -325,9 +324,17 @@ end")
 
 ; (take 2 (parse "'(4 3 2 1)"))
 
-(def patr-merge (partial merge-with (fn [val-in-result val-in-latter]
+(def patr-merge- (partial merge-with (fn [val-in-result val-in-latter]
                                       (if (fn? val-in-latter)
                                         (if (fn? val-in-result) (comp val-in-latter val-in-result) (val-in-latter val-in-result))
+                                        val-in-latter))))
+
+(def patr-merge (partial merge-with (fn [val-in-result val-in-latter]
+                                      (if (fn? val-in-latter)
+                                        (if (fn? val-in-result)
+                                          (fn [ctx patr track bars]
+                                            (->> bars (val-in-result ctx patr track) (val-in-latter ctx patr track)))
+                                          (fn [ctx patr track _] (val-in-latter ctx patr track val-in-result)))
                                         val-in-latter))))
 
 (defn- step-all [step buf] (let [{:keys [t d]} (first step)] (map #(assoc % :t t :d d) buf)))
