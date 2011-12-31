@@ -252,13 +252,6 @@ end")
           " then clj4rnx.track.visible_note_columns = " vis-note-cols " end")
       offs))
 
-(defn alias [alias-patr-key]
-     (fn [{:keys [patrs]} _ {:keys [track-index]}]
-       (if-let [alias-patr (alias-patr-key patrs)]
-         (ev "clj4rnx.pattern:track(" (inc track-index) ").alias_pattern_index = " (-> :patr-index alias-patr inc))
-         (throw (IllegalArgumentException. (str "set-alias: alias-patr-key " alias-patr-key " does not exist."))))
-       nil))
-
 (def e-re* #"(([whqest\.]+)|(-?[\d/\.]+)([#b]+)?([+-]+)?([whqest\.]+)?([\d/\.]+)?\s*(\{.*})?)")
 ; (re-find e-re* "-1-")
 ; (re-find e-re* "1#+hq")
@@ -418,7 +411,7 @@ end")
                             (ev "clj4rnx.pattern.number_of_lines = " (* patr-bar-cnt 4 *lpb*))
                             (reduce (fn [offs [track-key {:keys [track-index] :as track}]]
                                       (let [bars (track-key patr)
-                                            bars (if (fn? bars) (bars ctx patr track) bars)]
+                                            bars (if (fn? bars) (bars ctx patr track bars) bars)]
                                         (if-let [bars (seq bars)]
                                           (update-in offs [track-key] (partial set-note-bars track deg-to-pitch)
                                                      (take patr-bar-cnt bars))
@@ -487,11 +480,34 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
 5#-e 5#e 6-e 6e 6#-e 6#e 7-e 7e")
       })
 
+(defn alias [alias-patr-key]
+     (fn [{:keys [patrs]} _ {:keys [track-index]} _]
+       (if-let [alias-patr (alias-patr-key patrs)]
+         (ev "clj4rnx.pattern:track(" (inc track-index) ").alias_pattern_index = " (-> :patr-index alias-patr inc))
+         (throw (IllegalArgumentException. (str "set-alias: alias-patr-key " alias-patr-key " does not exist."))))
+       nil))
+
+(defn merge-bars [x y mix]
+  (lazy-seq
+   (let [x (seq x) y (seq y) mix (seq mix)]
+     (when (and x y mix)
+       (let [v (condp = (first mix)
+                   0 (first x)
+                   1 (first y)
+                   (throw (IllegalArgumentException. (str "Illegal mix value: " (first mix)))))]
+         (cons v (merge-bars (rest x) (rest y) (rest mix))))))))
+
+(defn patr-merge-bars [bars mix] (fn [_ _ _ patr-bars] (merge-bars patr-bars bars mix)))
+
 (def patrs*
      [
       (assoc (select-keys grv-1* [:bd :sd :hh-c]) :patr-key :grv-1 :section-name "templates" :patr-bar-cnt 2)
-      {:section-name "intro" :bd (alias :grv-1) }
-      {:bd (alias :grv-1) :sd (alias :grv-1)}
+      (patr-merge (select-keys grv-1* [:bd])
+                  {:section-name "intro"
+                   :bd (patr-merge-bars (repeat []) (cycle [0 0 0 1]))
+                   :patr-bar-cnt 8})
+      #_{:section-name "intro" :bd (alias :grv-1) }
+      #_{:bd (alias :grv-1) :sd (alias :grv-1)}
       #_(assoc (select-keys grv-1* [:bd]) :patr-key :grv-1 :section-name "intro")
       #_(select-keys grv-1* [:bd :sd])
       #_(assoc (select-keys grv-1* [:bd :sd]) :patr-key :grv-2)
