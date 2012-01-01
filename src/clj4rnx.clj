@@ -50,6 +50,28 @@ end
     clj4rnx.send_result = function(s) clj4rnx.client:send(renoise.Osc.Message('/clj4rnx/result', {{tag='s', value=s}})) end
 "))
 
+(defn loop-non-template-range []
+  (ev "
+do
+  local found_templates = false; last_template_index = 0
+  for i, pattern_index in ipairs(renoise.song().sequencer.pattern_sequence) do
+    if (not found_templates) then found_templates = (renoise.song().sequencer:sequence_section_name(i) == 'templates') end
+    if (found_templates and renoise.song().sequencer:sequence_is_end_of_section(i)) then
+      last_template_index = i
+      break
+    end
+  end
+  local first_non_template_index = last_template_index + 1; last_seq_index = #renoise.song().sequencer.pattern_sequence; sp = renoise.SongPos() 
+  if (first_non_template_index <= last_seq_index) then
+    renoise.song().transport.loop_sequence_range = {first_non_template_index, last_seq_index}
+    sp.sequence = first_non_template_index
+    renoise.song().transport.playback_pos = sp
+  end
+end
+"))
+
+; (loop-non-template-range)
+
 (defn query
   [& args]
   (ev "clj4rnx.client:send(renoise.Osc.Message(\"/clj4rnx/result/begin\"))")
@@ -431,12 +453,24 @@ end")
              :patrs (reduce (fn [patrs m] (assoc patrs (:patr-key m) m)) {} (:patrs song))}
             (:patrs song))))
 
-(def grv-1*
-     {:bd (parse "1 1 1 1")
-      :sd (parse "q 1 q 1")
-      :hh-c (parse "e 1e e 1e e 1e e 1e")
-      :hc (parse "1 1 1 1e 1e 1 1 1 e s 1s")
-      })
+(defn alias [alias-patr-key]
+     (fn [{:keys [patrs]} _ {:keys [track-index]} _]
+       (if-let [alias-patr (alias-patr-key patrs)]
+         (ev "clj4rnx.pattern:track(" (inc track-index) ").alias_pattern_index = " (-> :patr-index alias-patr inc))
+         (throw (IllegalArgumentException. (str "set-alias: alias-patr-key " alias-patr-key " does not exist."))))
+       nil))
+
+(defn merge-bars [x y mix]
+  (lazy-seq
+   (let [x (seq x) y (seq y) mix (seq mix)]
+     (when (and x y mix)
+       (let [v (condp = (first mix)
+                   0 (first x)
+                   1 (first y)
+                   (throw (IllegalArgumentException. (str "Illegal mix value: " (first mix)))))]
+         (cons v (merge-bars (rest x) (rest y) (rest mix))))))))
+
+(defn patr-merge-bars [mix bars] (fn [_ _ _ patr-bars] (merge-bars patr-bars bars mix)))
 
 (def seeds*
      {:cloudburst (parse 16 "
@@ -480,32 +514,29 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
 5#-e 5#e 6-e 6e 6#-e 6#e 7-e 7e")
       })
 
-(defn alias [alias-patr-key]
-     (fn [{:keys [patrs]} _ {:keys [track-index]} _]
-       (if-let [alias-patr (alias-patr-key patrs)]
-         (ev "clj4rnx.pattern:track(" (inc track-index) ").alias_pattern_index = " (-> :patr-index alias-patr inc))
-         (throw (IllegalArgumentException. (str "set-alias: alias-patr-key " alias-patr-key " does not exist."))))
-       nil))
+(def grv-1-template*
+     {:bd (parse "1 1 1 1")
+      :sd (parse "q 1 q 1")
+      :hh-c (parse "e 1e e 1e e 1e e 1e")
+      :hc (parse "q 1 q 1")
+      })
 
-(defn merge-bars [x y mix]
-  (lazy-seq
-   (let [x (seq x) y (seq y) mix (seq mix)]
-     (when (and x y mix)
-       (let [v (condp = (first mix)
-                   0 (first x)
-                   1 (first y)
-                   (throw (IllegalArgumentException. (str "Illegal mix value: " (first mix)))))]
-         (cons v (merge-bars (rest x) (rest y) (rest mix))))))))
-
-(defn patr-merge-bars [bars mix] (fn [_ _ _ patr-bars] (merge-bars patr-bars bars mix)))
+(def grv-1a*
+     (patr-merge  (select-keys grv-1-template* [:bd :sd :hh-c])
+                  {:bd (patr-merge-bars (cycle [0 0 0 1]) (parse "www 1 1 1 1e 1e"))
+                   :patr-bar-cnt 4}))
 
 (def patrs*
      [
-      (assoc (select-keys grv-1* [:bd :sd :hh-c]) :patr-key :grv-1 :section-name "templates" :patr-bar-cnt 2)
-      (patr-merge (select-keys grv-1* [:bd])
+      (assoc grv-1-template* :patr-key :grv-1-template :section-name "templates" :patr-bar-cnt 2)
+      #_(assoc (select-keys grv-1-template* [:bd :sd :hh-c]) :patr-key :grv-1-template :section-name "templates" :patr-bar-cnt 2)
+      (patr-merge (select-keys grv-1-template* [:bd])
                   {:section-name "intro"
-                   :bd (patr-merge-bars (repeat []) (cycle [0 0 0 1]))
-                   :patr-bar-cnt 8})
+                   :bd (patr-merge-bars (cycle [0 1]) (parse "w 1 1 1 1s 1s"))
+                   :patr-bar-cnt 2})
+      (patr-merge (select-keys grv-1-template* [:bd :sd :hh-c])
+                  {:bd (patr-merge-bars (cycle [0 0 0 1]) (parse "www 1 1 1 1e 1e"))
+                   :patr-bar-cnt 4})
       #_{:section-name "intro" :bd (alias :grv-1) }
       #_{:bd (alias :grv-1) :sd (alias :grv-1)}
       #_(assoc (select-keys grv-1* [:bd]) :patr-key :grv-1 :section-name "intro")
@@ -553,6 +584,7 @@ e 1e e 1e e 1e e 1e
         })
   (reset-song song*)
   (set-patrs song*)
+  (loop-non-template-range)
   nil)
 
 (bootstrap)
