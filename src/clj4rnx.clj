@@ -440,12 +440,6 @@ end")
                                           (dissoc offs track-key))))
                                     offs tracks))))))
 
-(defn loop-patr- [song patr-index]
-  (set-patr song patr-index {})
-  (ev "clj4rnx.song.selected_sequence_index = " (inc patr-index))
-  (ev "clj4rnx.song.transport.loop_pattern = true")
-  (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
-
 (defn- sync-song
   ([song] (sync-song song 0))
   ([song start] (sync-song song start (-> :patrs song count dec)))
@@ -456,7 +450,14 @@ end")
            start (if (number? start) start (-> :patrs ctx start :patr-index))
            end (if (number? end) end (-> :patrs ctx end :patr-index))]
        (reduce #(-> :patrs song (get %2) (set-patr %1))
-               ctx (range start (inc end))))))
+               ctx (range start (inc end)))
+       (ev "
+do
+  local sp = renoise.SongPos()
+  renoise.song().transport.loop_sequence_range = {" (inc start) ", " (inc end) "}
+  sp.sequence = " (inc start) "
+  renoise.song().transport.playback_pos = sp
+end"))))
 
 (defn alias [alias-patr-key]
      (fn [{:keys [patrs]} _ {:keys [track-index]} _]
@@ -534,7 +535,6 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
 (def patrs*
      [
       (assoc grv-1-template* :patr-key :grv-1-template :section-name "templates" :patr-bar-cnt 2)
-      #_(assoc (select-keys grv-1-template* [:bd :sd :hh-c]) :patr-key :grv-1-template :section-name "templates" :patr-bar-cnt 2)
       (patr-merge (select-keys grv-1-template* [:bd])
                   {:section-name "intro"
                    :bd (patr-merge-bars (cycle [0 1]) (parse "w 1 1 1 1s 1s"))
@@ -542,11 +542,6 @@ e 1e 3be 1s 3be 1s 3be 5e 5-e")
       (patr-merge (select-keys grv-1-template* [:bd :sd :hh-c])
                   {:bd (patr-merge-bars (cycle [0 0 0 1]) (parse "www 1 1 1 1e 1e"))
                    :patr-bar-cnt 4})
-      #_{:section-name "intro" :bd (alias :grv-1) }
-      #_{:bd (alias :grv-1) :sd (alias :grv-1)}
-      #_(assoc (select-keys grv-1* [:bd]) :patr-key :grv-1 :section-name "intro")
-      #_(select-keys grv-1* [:bd :sd])
-      #_(assoc (select-keys grv-1* [:bd :sd]) :patr-key :grv-2)
       #_{:bs (parse "1e 1+e 7be 1+e 1e 5e 7be 1+e
 5e 1+e 7be 1+e 1e 5e 7be 1+e
 3be 3b+e 2+e 3b+e 3be 7be 2+e 3b+e
@@ -565,10 +560,6 @@ e 1e e 1e e 1e e 1e
 ") :patr-bar-cnt 8})
       #_(patr-merge grv-1* {:bs (step-seq step-index (parse "1e 1e 1s 1s s -1s 1e 2e 1s 1s") (:bs-1 seeds*)) :patr-bar-cnt 8})
       #_{:bs (step-seq step-index (parse "1e 1e 1s 1s s -1s 1e 2e 1s 1s") (:bs-1 seeds*))
-;       :ld (step-seq (partial step-index >) (:steps-1 seeds*) (:chords-1 seeds*))
-;       :pd (step-seq (partial step-index >) (parse "1s 1s '(1e 2e)") (:chords-1 seeds*))
-;       :pd (step-seq (partial step-index nil) (parse "1s -1s '(1e 2e)") (parse "'(1w 3w 5w 6w 7b-w)"))
-;       :pd (:chords-1 seeds*)
        :patr-bar-cnt 8}
       #_{:bs (step-seq (partial step-index <) (parse "1e 1e 1s 1s s 1s 1e 1e 1s 1s") (:cloudburst seeds*)) :pd (:cloudburst seeds*) :patr-bar-cnt 16}
       #_(-> grv-1* (select-keys [:bd]) (assoc :patr-bar-cnt- 1))
@@ -578,25 +569,22 @@ e 1e e 1e e 1e e 1e
       #_(assoc (patr-merge grv-1* bs-1*)
         :key (apply step-seq step-index ((juxt :cloudburst-steps :cloudburst) seeds*))
         :patr-bar-cnt 16)
-      #_(assoc (patr-merge grv-1* bs-1* {:pd (:cloudburst seeds*)}) :patr-bar-cnt 16)
       ])
 
-(defn demo []
-  (def song*
+(def song*
        {:bpm 140 
         :tracks {:bs {:note-f #(update-in % [:oct] (fnil (partial + 1) 0))}} 
         :patrs patrs*
         })
+
+(defn demo []
   (reset-song song*)
   (sync-song song*)
-  (loop-non-template-range)
-  nil)
+  (loop-non-template-range))
 
 (bootstrap)
 
 (defonce *interactive* false)
-;(if *interactive* (loop-patr song* 0) (demo))
 (if *interactive*
-  (do
-    (sync-song))
+  (sync-song song* 2 2)
   (demo))
