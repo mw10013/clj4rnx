@@ -420,7 +420,7 @@ end")
 (def pre-patr* {:patr-bar-cnt 1})
 (def post-patr* {:bs-- (fn [bars] (map (fn [bar] (map #(update-in % [:oct] (fnil inc 0)) bar)) bars))})
 
-(defn set-patr [{:keys [song tracks offs] :as ctx} patr]
+(defn set-patr [patr {:keys [song tracks offs] :as ctx}]
   (let [{:keys [patr-key patr-index section-name template? patr-bar-cnt] :as patr} (patr-merge pre-patr* patr post-patr*)]
     (ev "clj4rnx.pattern = clj4rnx.song:pattern(" (inc patr-index) ")")
     (when patr-key (ev "clj4rnx.pattern.name = '" (name patr-key) "'"))
@@ -446,12 +446,17 @@ end")
   (ev "clj4rnx.song.transport.loop_pattern = true")
   (ev "clj4rnx.song.transport:start(renoise.Transport.PLAYMODE_CONTINUE_PATTERN)"))
 
-(defn- set-patrs [song]
-  (let [song (update-in song [:patrs] #(->> % (map-indexed (fn [index m] (assoc m :patr-index index))) vec))]
-    (reduce #(set-patr %1 %2)
-            {:song song :tracks (merge (:tracks song) (query-tracks)) :offs {}
-             :patrs (reduce (fn [patrs m] (assoc patrs (:patr-key m) m)) {} (:patrs song))}
-            (:patrs song))))
+(defn- sync-song
+  ([song] (sync-song song 0))
+  ([song start] (sync-song song start (-> :patrs song count dec)))
+  ([song start end]
+     (let [song (update-in song [:patrs] #(->> % (map-indexed (fn [index m] (assoc m :patr-index index))) vec))
+           ctx {:song song :tracks (merge (:tracks song) (query-tracks)) :offs {}
+                :patrs (reduce (fn [patrs m] (assoc patrs (:patr-key m) m)) {} (:patrs song))}
+           start (if (number? start) start (-> :patrs ctx start :patr-index))
+           end (if (number? end) end (-> :patrs ctx end :patr-index))]
+       (reduce #(-> :patrs song (get %2) (set-patr %1))
+               ctx (range start (inc end))))))
 
 (defn alias [alias-patr-key]
      (fn [{:keys [patrs]} _ {:keys [track-index]} _]
@@ -583,7 +588,7 @@ e 1e e 1e e 1e e 1e
         :patrs patrs*
         })
   (reset-song song*)
-  (set-patrs song*)
+  (sync-song song*)
   (loop-non-template-range)
   nil)
 
@@ -591,4 +596,7 @@ e 1e e 1e e 1e e 1e
 
 (defonce *interactive* false)
 ;(if *interactive* (loop-patr song* 0) (demo))
-(demo)
+(if *interactive*
+  (do
+    (sync-song))
+  (demo))
